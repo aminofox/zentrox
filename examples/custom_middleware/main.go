@@ -10,7 +10,7 @@ import (
 
 func AuthGuard() zentrox.Handler {
 	return func(c *zentrox.Context) {
-		if c.Request.Header.Get("X-Token") != "secret" {
+		if c.GetHeader("X-Token") != "secret" {
 			c.Problemf(401, "unauthorized", "missing or invalid token")
 			c.Abort()
 			return

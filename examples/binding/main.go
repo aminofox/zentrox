@@ -22,7 +22,17 @@ type SearchDTO struct {
 
 func main() {
 	app := zentrox.NewApp()
-	app.Plug(middleware.Recovery(), middleware.Logger())
+	app.Plug(
+		middleware.CORS(middleware.CORSConfig{
+			AllowOrigins:     []string{"http://localhost:5173", "*"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Content-Type", "Authorization"},
+			AllowCredentials: false,
+			MaxAge:           3600,
+		}),
+		middleware.Recovery(),
+		middleware.Logger(),
+	)
 
 	app.OnPost("/users", func(c *zentrox.Context) {
 		var in CreateUserDTO

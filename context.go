@@ -95,6 +95,10 @@ func (c *Context) SetHeader(k, v string) {
 	c.Writer.Header().Set(k, v)
 }
 
+func (c *Context) GetHeader(key string) string {
+	return c.GetHeader(key)
+}
+
 // Set stores an arbitrary value for the lifetime of the request.
 func (c *Context) Set(key string, v any) {
 	c.store[key] = v
@@ -608,7 +612,7 @@ func (c *Context) Accepts(candidates ...string) string {
 	if len(candidates) == 0 {
 		return ""
 	}
-	accept := c.Request.Header.Get("Accept")
+	accept := c.GetHeader("Accept")
 	if strings.TrimSpace(accept) == "" {
 		return candidates[0]
 	}

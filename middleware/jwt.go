@@ -33,7 +33,7 @@ func JWT(cfg JWTConfig) zentrox.Handler {
 	}
 
 	return func(c *zentrox.Context) {
-		auth := c.Request.Header.Get("Authorization")
+		auth := c.GetHeader("Authorization")
 		prefix := cfg.AuthScheme + " "
 		if !strings.HasPrefix(auth, prefix) {
 			c.SendJSON(http.StatusUnauthorized, map[string]any{"error": "missing authorization header"})
@@ -153,7 +153,7 @@ func JWTChecks(cfg JWTChecksConfig) zentrox.Handler {
 
 	return func(c *zentrox.Context) {
 		const bearer = "Bearer "
-		auth := c.Request.Header.Get("Authorization")
+		auth := c.GetHeader("Authorization")
 		if !strings.HasPrefix(auth, bearer) {
 			c.Forward()
 			return

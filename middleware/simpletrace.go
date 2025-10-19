@@ -41,7 +41,7 @@ func SimpleTrace(cfg SimpleTraceConfig) zentrox.Handler {
 	return func(c *zentrox.Context) {
 		// Extract incoming trace if present.
 		var traceID, parentSpanID string
-		if tp := c.Request.Header.Get(cfg.HeaderName); tp != "" {
+		if tp := c.GetHeader(cfg.HeaderName); tp != "" {
 			if t, p, ok := telemetry.ParseTraceParent(tp); ok {
 				traceID, parentSpanID = t, p
 			}

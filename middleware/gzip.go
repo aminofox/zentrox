@@ -41,7 +41,7 @@ var defaultGzipOptions = GzipOptions{
 		if strings.HasPrefix(ct, "text/event-stream") { // SSE
 			return true
 		}
-		if strings.Contains(strings.ToLower(c.Request.Header.Get("Connection")), "upgrade") {
+		if strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade") {
 			return true
 		}
 		return false
@@ -78,11 +78,11 @@ func GzipWithOptions(opt GzipOptions) zentrox.Handler {
 			c.Forward()
 			return
 		}
-		if !strings.Contains(c.Request.Header.Get("Accept-Encoding"), "gzip") {
+		if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
 			c.Forward()
 			return
 		}
-		if strings.Contains(strings.ToLower(c.Request.Header.Get("Connection")), "upgrade") { // websocket, h2c upgrade...
+		if strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade") { // websocket, h2c upgrade...
 			c.Forward()
 			return
 		}

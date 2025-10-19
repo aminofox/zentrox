@@ -111,6 +111,15 @@ func (a *App) on(method, path string, hs ...Handler) {
 	mws := hs[:len(hs)-1] // route middlewares
 	a.rt.add(method, path, append(a.plug, mws...), h)
 	a.trackRoute(method, path, h, append(a.plug, mws...))
+
+	// Auto-register OPTIONS handler if not already registered
+	if method != http.MethodOptions {
+		optHandler := func(c *Context) {
+			// Use SendStatus to ensure proper status code recording
+			c.SendStatus(http.StatusNoContent)
+		}
+		a.rt.add(http.MethodOptions, path, append(a.plug, mws...), optHandler)
+	}
 }
 
 // Sugar helpers.
@@ -744,13 +753,13 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		}
 
 		// Conditional requests
-		if inm := c.Request.Header.Get("If-None-Match"); inm != "" && etag != "" {
+		if inm := c.GetHeader("If-None-Match"); inm != "" && etag != "" {
 			if etagMatch(inm, etag) {
 				c.Writer.WriteHeader(http.StatusNotModified)
 				return
 			}
 		}
-		if ims := c.Request.Header.Get("If-Modified-Since"); ims != "" {
+		if ims := c.GetHeader("If-Modified-Since"); ims != "" {
 			if t, err := time.Parse(http.TimeFormat, ims); err == nil {
 				// If not modified since, return 304
 				if !lastMod.After(t) {
