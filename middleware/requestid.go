@@ -42,7 +42,7 @@ func RequestID(cfg RequestIDConfig) zentrox.Handler {
 	return func(c *zentrox.Context) {
 		id := ""
 		if cfg.AllowFromHeader {
-			id = c.Request.Header.Get(cfg.HeaderName)
+			id = c.GetHeader(cfg.HeaderName)
 		}
 		if id == "" {
 			id = gen()

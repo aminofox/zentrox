@@ -53,7 +53,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 					log.Printf("panic: %v", r)
 				}
 				// Respect content negotiation for problem+json.
-				wantsProblem := strings.Contains(strings.ToLower(c.Request.Header.Get("Accept")), "application/problem+json")
+				wantsProblem := strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/problem+json")
 				if wantsProblem {
 					c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
 				} else {
@@ -74,7 +74,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 
 		// If a handler recorded an error, render it now.
 		if err := c.Error(); err != nil {
-			wantsProblem := strings.Contains(strings.ToLower(c.Request.Header.Get("Accept")), "application/problem+json")
+			wantsProblem := strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/problem+json")
 
 			switch e := err.(type) {
 			case zentrox.HTTPError:

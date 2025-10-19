@@ -29,7 +29,6 @@ func DefaultCORS() CORSConfig {
 }
 
 func CORS(cfg CORSConfig) zentrox.Handler {
-	allowOrigins := strings.Join(cfg.AllowOrigins, ", ")
 	allowMethods := strings.Join(cfg.AllowMethods, ", ")
 	allowHeaders := strings.Join(cfg.AllowHeaders, ", ")
 	exposeHeaders := strings.Join(cfg.ExposeHeaders, ", ")
@@ -40,8 +39,36 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 
 	return func(c *zentrox.Context) {
 		h := c.Writer.Header()
-		if allowOrigins != "" {
-			h.Set("Access-Control-Allow-Origin", allowOrigins)
+
+		// Handle Access-Control-Allow-Origin
+		// If wildcard is in the list, use it; otherwise match origin against whitelist
+		origin := c.GetHeader("Origin")
+		acaoHeader := ""
+		if len(cfg.AllowOrigins) > 0 {
+			if cfg.AllowOrigins[0] == "*" {
+				acaoHeader = "*"
+			} else {
+				// Check if origin matches any in the list
+				for _, allowed := range cfg.AllowOrigins {
+					if allowed == origin {
+						acaoHeader = origin
+						break
+					}
+				}
+				// If no exact match and "*" is in the list, allow it
+				if acaoHeader == "" {
+					for _, allowed := range cfg.AllowOrigins {
+						if allowed == "*" {
+							acaoHeader = origin
+							break
+						}
+					}
+				}
+			}
+		}
+
+		if acaoHeader != "" {
+			h.Set("Access-Control-Allow-Origin", acaoHeader)
 		}
 		if allowMethods != "" {
 			h.Set("Access-Control-Allow-Methods", allowMethods)
@@ -60,7 +87,9 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 		}
 
 		if c.Request.Method == http.MethodOptions {
-			c.Writer.WriteHeader(http.StatusNoContent)
+			// Use SendStatus to properly handle the response through the recorder
+			c.SendStatus(http.StatusNoContent)
+			c.Abort()
 			return
 		}
 		c.Forward()
@@ -84,7 +113,7 @@ func StrictCORS(cfg StrictCORSConfig) zentrox.Handler {
 		allowed[strings.TrimSpace(o)] = struct{}{}
 	}
 	return func(c *zentrox.Context) {
-		origin := strings.TrimSpace(c.Request.Header.Get("Origin"))
+		origin := strings.TrimSpace(c.GetHeader("Origin"))
 		// Call next first so the underlying CORS middleware sets headers.
 		c.Forward()
 
@@ -125,7 +154,7 @@ func StrictCORS(cfg StrictCORSConfig) zentrox.Handler {
 		if acr, ok := c.Request.Header["Access-Control-Request-Headers"]; ok && len(acr) > 0 {
 			h.Add("Vary", "Access-Control-Request-Headers")
 		}
-		if acm := c.Request.Header.Get("Access-Control-Request-Method"); acm != "" {
+		if acm := c.GetHeader("Access-Control-Request-Method"); acm != "" {
 			h.Add("Vary", "Access-Control-Request-Method")
 		}
 	}

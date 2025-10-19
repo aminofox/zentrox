@@ -20,6 +20,13 @@ func main() {
 
 	// Use ErrorHandler to standardize errors & panics
 	app.Plug(
+		middleware.CORS(middleware.CORSConfig{
+			AllowOrigins:     []string{"http://localhost:5173", "*"},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"Content-Type", "Authorization"},
+			AllowCredentials: false,
+			MaxAge:           3600,
+		}),
 		middleware.BodyLimit(2<<20), // 2 MiB
 		middleware.ErrorHandler(middleware.DefaultErrorHandler()),
 		middleware.RequestID(middleware.DefaultRequestID()),
@@ -36,10 +43,15 @@ func main() {
 		}).
 		SetOnRequest(func(c *zentrox.Context) {
 			log.Printf("request on %s %s ", c.Request.Method, c.Request.URL.Path)
-		})
+		}).
+		SetPrintRoutes(true)
 
 	app.OnGet("/", func(c *zentrox.Context) {
 		c.SendText(http.StatusOK, `zentrox up!`+c.RequestID())
+	})
+
+	app.OnGet("/ping", func(c *zentrox.Context) {
+		c.SendJSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	app.OnGet(":id", func(c *zentrox.Context) {
