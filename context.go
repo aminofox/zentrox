@@ -96,7 +96,7 @@ func (c *Context) SetHeader(k, v string) {
 }
 
 func (c *Context) GetHeader(key string) string {
-	return c.GetHeader(key)
+	return c.Request.Header.Get(key)
 }
 
 // Set stores an arbitrary value for the lifetime of the request.
