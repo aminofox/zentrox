@@ -15,14 +15,14 @@ func AuthGuard() zentrox.Handler {
 			c.Abort()
 			return
 		}
-		c.Forward()
+		c.Next()
 	}
 }
 
 func AfterAuthGuard() zentrox.Handler {
 	return func(c *zentrox.Context) {
 		log.Println("AfterAuthGuard")
-		c.Forward()
+		c.Next()
 	}
 }
 
@@ -34,25 +34,25 @@ func main() {
 		middleware.ErrorHandler(middleware.DefaultErrorHandler()),
 	)
 
-	app.OnGet("/public", func(c *zentrox.Context) {
-		c.SendText(200, "public ok")
+	app.GET("/public", func(c *zentrox.Context) {
+		c.String(200, "public ok")
 	})
 
-	app.OnGet("/secure", AuthGuard(), AfterAuthGuard(), (func(c *zentrox.Context) {
-		c.SendText(200, "secure ok")
+	app.GET("/secure", AuthGuard(), AfterAuthGuard(), (func(c *zentrox.Context) {
+		c.String(200, "secure ok")
 	}))
 
 	api := app.Scope("api", AuthGuard())
 	{
-		api.OnGet("/users", func(ctx *zentrox.Context) {
-			ctx.SendText(200, "list ok")
+		api.GET("/users", func(ctx *zentrox.Context) {
+			ctx.String(200, "list ok")
 		})
-		api.OnGet("/user/:id", AfterAuthGuard(), func(ctx *zentrox.Context) {
+		api.GET("/user/:id", AfterAuthGuard(), func(ctx *zentrox.Context) {
 			id := ctx.Param("id")
-			ctx.SendText(200, fmt.Sprintf("User is %s", id))
+			ctx.String(200, fmt.Sprintf("User is %s", id))
 		})
-		api.OnGet("/me", func(ctx *zentrox.Context) {
-			ctx.SendText(200, "me ok")
+		api.GET("/me", func(ctx *zentrox.Context) {
+			ctx.String(200, "me ok")
 		})
 	}
 

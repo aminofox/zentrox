@@ -57,9 +57,6 @@ type App struct {
 	// Optional application version string; propagated to context as "app_version".
 	version string
 
-	// enable openapi
-	enableOpenapi bool
-
 	// enable route printing when Run()
 	printRoutes bool
 	// registry all registered routes
@@ -122,24 +119,28 @@ func (a *App) on(method, path string, hs ...Handler) {
 	}
 }
 
-// Sugar helpers.
-func (a *App) OnGet(path string, handlers ...Handler) {
+// GET registers a route for GET requests
+func (a *App) GET(path string, handlers ...Handler) {
 	a.on(http.MethodGet, path, handlers...)
 }
 
-func (a *App) OnPost(path string, handlers ...Handler) {
+// POST registers a route for POST requests
+func (a *App) POST(path string, handlers ...Handler) {
 	a.on(http.MethodPost, path, handlers...)
 }
 
-func (a *App) OnPut(path string, handlers ...Handler) {
+// PUT registers a route for PUT requests
+func (a *App) PUT(path string, handlers ...Handler) {
 	a.on(http.MethodPut, path, handlers...)
 }
 
-func (a *App) OnPatch(path string, handlers ...Handler) {
+// PATCH registers a route for PATCH requests
+func (a *App) PATCH(path string, handlers ...Handler) {
 	a.on(http.MethodPatch, path, handlers...)
 }
 
-func (a *App) OnDelete(path string, handlers ...Handler) {
+// DELETE registers a route for DELETE requests
+func (a *App) DELETE(path string, handlers ...Handler) {
 	a.on(http.MethodDelete, path, handlers...)
 }
 
@@ -191,47 +192,41 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Try exact method match first.
 	entry := a.rt.match(r.Method, r.URL.Path, ctx.params)
 
-	// Automatic HEAD: if HEAD is not registered, reuse GET handler without body.
 	if entry == nil && r.Method == http.MethodHead {
 		if getEntry := a.rt.match(http.MethodGet, r.URL.Path, ctx.params); getEntry != nil {
-			hw := &headWriter{ResponseWriter: rr} // layer over rr so status is captured
+			hw := &headWriter{ResponseWriter: rr}
 			ctx.Writer = hw
 			ctx.stack = getEntry.stack
-			ctx.Forward()
+			ctx.Next()
 			return
 		}
 	}
 
 	if entry == nil {
-		// Compute allowed methods for this path.
 		allow := a.rt.allowed(r.URL.Path)
 		if len(allow) > 0 {
 			rr.Header().Set("Allow", strings.Join(allow, ", "))
 
-			// Basic OPTIONS handling: advertise allowed methods (204).
 			if r.Method == http.MethodOptions {
 				rr.WriteHeader(http.StatusNoContent)
 				return
 			}
 
-			// 405 Method Not Allowed when path exists but method is not registered.
 			http.Error(rr, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 			return
 		}
 
-		// 404 Not Found (custom hook if provided).
 		if a.notFound != nil {
 			ctx.stack = []Handler{a.notFound}
-			ctx.Forward()
+			ctx.Next()
 			return
 		}
 		http.NotFound(rr, r)
 		return
 	}
 
-	// Assign the compiled stack, then run chain.
 	ctx.stack = entry.stack
-	ctx.Forward()
+	ctx.Next()
 }
 
 // Run keeps backward compatibility: starts a blocking server with
@@ -337,15 +332,15 @@ func (a *App) Shutdown(ctx context.Context, srv *http.Server) error {
 // - If readinessPath is non-empty and ready != nil, it returns 200/503 based on ready().
 func (a *App) Health(livenessPath, readinessPath string, ready func() bool) {
 	if livenessPath != "" {
-		a.OnGet(livenessPath, func(c *Context) { c.SendText(http.StatusOK, "ok") })
+		a.GET(livenessPath, func(c *Context) { c.String(http.StatusOK, "ok") })
 	}
 	if readinessPath != "" && ready != nil {
-		a.OnGet(readinessPath, func(c *Context) {
+		a.GET(readinessPath, func(c *Context) {
 			if ready() {
-				c.SendText(http.StatusOK, "ready")
+				c.String(http.StatusOK, "ready")
 				return
 			}
-			c.SendText(http.StatusServiceUnavailable, "not ready")
+			c.String(http.StatusServiceUnavailable, "not ready")
 		})
 	}
 }
@@ -385,15 +380,6 @@ func (a *App) SetVersion(v string) *App {
 // Version returns the configured application version.
 func (a *App) Version() string {
 	return a.version
-}
-
-func (a *App) SetEnableOpenAPI(enable bool) *App {
-	a.enableOpenapi = enable
-	return a
-}
-
-func (a *App) EnableOpenAPI() bool {
-	return a.enableOpenapi
 }
 
 // Enable/disable route printing when server starts
@@ -518,24 +504,46 @@ func (s *Scope) on(method, rel string, hs ...Handler) {
 	s.app.rt.add(method, s.prefix+rel, stack, h)
 	s.app.trackRoute(method, s.prefix+rel, h, stack)
 }
-func (s *Scope) OnGet(path string, handlers ...Handler) {
+
+// GET registers a route for GET requests
+func (s *Scope) GET(path string, handlers ...Handler) {
 	s.on(http.MethodGet, path, handlers...)
 }
 
-func (s *Scope) OnPost(path string, handlers ...Handler) {
+// POST registers a route for POST requests
+func (s *Scope) POST(path string, handlers ...Handler) {
 	s.on(http.MethodPost, path, handlers...)
 }
 
-func (s *Scope) OnPut(path string, handlers ...Handler) {
+// PUT registers a route for PUT requests
+func (s *Scope) PUT(path string, handlers ...Handler) {
 	s.on(http.MethodPut, path, handlers...)
 }
 
-func (s *Scope) OnPatch(path string, handlers ...Handler) {
+// PATCH registers a route for PATCH requests
+func (s *Scope) PATCH(path string, handlers ...Handler) {
 	s.on(http.MethodPatch, path, handlers...)
 }
 
-func (s *Scope) OnDelete(path string, handlers ...Handler) {
+// DELETE registers a route for DELETE requests
+func (s *Scope) DELETE(path string, handlers ...Handler) {
 	s.on(http.MethodDelete, path, handlers...)
+}
+
+// Use adds middleware to this scope
+func (s *Scope) Use(middlewares ...Handler) {
+	s.plug = append(s.plug, middlewares...)
+}
+
+// Scope creates a nested route group with a path prefix and optional middlewares.
+func (s *Scope) Scope(prefix string, mws ...Handler) *Scope {
+	combinedMws := append([]Handler{}, s.plug...)
+	combinedMws = append(combinedMws, mws...)
+	return &Scope{
+		app:    s.app,
+		prefix: s.prefix + prefix,
+		plug:   combinedMws,
+	}
 }
 
 // Context pooling
@@ -678,7 +686,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 			if !opt.DisableIndex && opt.Index != "" {
 				rel = "/" + opt.Index
 			} else {
-				c.SendText(http.StatusNotFound, "not found")
+				c.String(http.StatusNotFound, "not found")
 				return
 			}
 		}
@@ -686,12 +694,12 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		// Clean and join; prevent traversal outside root
 		clean := filepath.Clean(rel)
 		if strings.HasPrefix(clean, "..") {
-			c.SendText(http.StatusForbidden, "forbidden")
+			c.String(http.StatusForbidden, "forbidden")
 			return
 		}
 		target := filepath.Join(root, strings.TrimPrefix(clean, string(filepath.Separator)))
 		if !isWithinBase(root, target) {
-			c.SendText(http.StatusForbidden, "forbidden")
+			c.String(http.StatusForbidden, "forbidden")
 			return
 		}
 
@@ -699,7 +707,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		if len(allow) > 0 {
 			ext := strings.ToLower(filepath.Ext(target))
 			if _, ok := allow[ext]; !ok {
-				c.SendText(http.StatusForbidden, "forbidden")
+				c.String(http.StatusForbidden, "forbidden")
 				return
 			}
 		}
@@ -708,10 +716,10 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		fi, err := os.Stat(target)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				c.SendText(http.StatusNotFound, "not found")
+				c.String(http.StatusNotFound, "not found")
 				return
 			}
-			c.SendText(http.StatusInternalServerError, "stat error")
+			c.String(http.StatusInternalServerError, "stat error")
 			return
 		}
 		if fi.IsDir() {
@@ -720,11 +728,11 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 				target = filepath.Join(target, opt.Index)
 				fi, err = os.Stat(target)
 				if err != nil || fi.IsDir() {
-					c.SendText(http.StatusNotFound, "not found")
+					c.String(http.StatusNotFound, "not found")
 					return
 				}
 			} else {
-				c.SendText(http.StatusNotFound, "not found")
+				c.String(http.StatusNotFound, "not found")
 				return
 			}
 		}
@@ -783,7 +791,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		// Stream the file to client
 		f, err := os.Open(target)
 		if err != nil {
-			c.SendText(http.StatusInternalServerError, "open error")
+			c.String(http.StatusInternalServerError, "open error")
 			return
 		}
 		defer f.Close()
@@ -792,7 +800,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		_, _ = io.Copy(c.Writer, f)
 	}
 
-	a.OnGet(pat, h)
+	a.GET(pat, h)
 	// Reuse GET handler for HEAD (HEAD auto fallback also exists, but register explicit)
 	a.on(http.MethodHead, pat, h)
 }

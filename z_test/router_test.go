@@ -17,8 +17,8 @@ func newApp() *zentrox.App {
 
 func TestRouter_Static(t *testing.T) {
 	app := newApp()
-	app.OnGet("/hi", func(c *zentrox.Context) {
-		c.SendText(http.StatusOK, "hello")
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "hello")
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
@@ -35,10 +35,10 @@ func TestRouter_Static(t *testing.T) {
 
 func TestRouter_ParamsAndWildcard(t *testing.T) {
 	app := newApp()
-	app.OnGet("/users/:id/files/*path", func(c *zentrox.Context) {
+	app.GET("/users/:id/files/*path", func(c *zentrox.Context) {
 		id := c.Param("id")
 		path := c.Param("path")
-		c.SendJSON(http.StatusOK, map[string]string{"id": id, "path": path})
+		c.JSON(http.StatusOK, map[string]string{"id": id, "path": path})
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/users/42/files/a/b/c.txt", nil)
@@ -58,7 +58,7 @@ func TestRouter_ParamsAndWildcard(t *testing.T) {
 
 func TestRouter_404And405(t *testing.T) {
 	app := newApp()
-	app.OnGet("/onlyget", func(c *zentrox.Context) { c.SendText(200, "ok") })
+	app.GET("/onlyget", func(c *zentrox.Context) { c.String(200, "ok") })
 
 	// 404
 	req := httptest.NewRequest(http.MethodGet, "/notfound", nil)
@@ -79,8 +79,8 @@ func TestRouter_404And405(t *testing.T) {
 
 func TestRouter_AutoHEAD(t *testing.T) {
 	app := newApp()
-	app.OnGet("/page", func(c *zentrox.Context) {
-		c.SendText(http.StatusOK, "body")
+	app.GET("/page", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "body")
 	})
 
 	req := httptest.NewRequest(http.MethodHead, "/page", nil)

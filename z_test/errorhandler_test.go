@@ -19,7 +19,7 @@ type httpErr struct {
 func TestErrorHandler_Panic(t *testing.T) {
 	app := zentrox.NewApp()
 	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
-	app.OnGet("/panic", func(c *zentrox.Context) { panic("boom") })
+	app.GET("/panic", func(c *zentrox.Context) { panic("boom") })
 
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
 	w := httptest.NewRecorder()
@@ -38,7 +38,7 @@ func TestErrorHandler_Panic(t *testing.T) {
 func TestErrorHandler_Fail(t *testing.T) {
 	app := zentrox.NewApp()
 	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
-	app.OnGet("/bad", func(c *zentrox.Context) { c.Fail(http.StatusBadRequest, "bad req") })
+	app.GET("/bad", func(c *zentrox.Context) { c.Fail(http.StatusBadRequest, "bad req") })
 
 	req := httptest.NewRequest(http.MethodGet, "/bad", nil)
 	w := httptest.NewRecorder()

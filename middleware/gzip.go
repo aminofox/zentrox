@@ -73,21 +73,19 @@ func Gzip() zentrox.Handler {
 // GzipWithOptions allows configuring gzip behavior.
 func GzipWithOptions(opt GzipOptions) zentrox.Handler {
 	return func(c *zentrox.Context) {
-		// Fast-path skips
 		if c.Request.Method == http.MethodHead {
-			c.Forward()
+			c.Next()
 			return
 		}
 		if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
-			c.Forward()
+			c.Next()
 			return
 		}
-		if strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade") { // websocket, h2c upgrade...
-			c.Forward()
+		if strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade") {
+			c.Next()
 			return
 		}
 
-		// Wrap a buffering writer that decides to gzip on first large-enough write.
 		rw := &gzipBufferingRW{
 			ResponseWriter: c.Writer,
 			ctx:            c,
@@ -96,9 +94,8 @@ func GzipWithOptions(opt GzipOptions) zentrox.Handler {
 		}
 		c.Writer = rw
 
-		c.Forward() // run next handlers
+		c.Next()
 
-		// Finish: ensure buffered data is flushed either compressed or plain.
 		rw.finish()
 	}
 }

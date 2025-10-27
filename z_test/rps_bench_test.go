@@ -19,10 +19,9 @@ func (d discardRW) Write(p []byte) (int, error) { return len(p), nil }
 // newAppCommon create app with "basic" chain (no IO log for stable result)
 func newAppCommon() *zentrox.App {
 	app := zentrox.NewApp()
-	// ErrorHandler + RequestID is a common, lightweight chain; avoid default AccessLog as writing IO will dirty the benchmark
+	// ErrorHandler is a common, lightweight chain; avoid AccessLog as writing IO will dirty the benchmark
 	app.Plug(
 		middleware.ErrorHandler(middleware.DefaultErrorHandler()),
-		middleware.RequestID(middleware.DefaultRequestID()),
 	)
 	return app
 }
@@ -63,7 +62,7 @@ func benchRPSParallel(b *testing.B, app *zentrox.App, req *http.Request) {
 // Bench: Static route (very light handler)
 func BenchmarkRPS_Static(b *testing.B) {
 	app := newAppCommon()
-	app.OnGet("/hi", func(c *zentrox.Context) {
+	app.GET("/hi", func(c *zentrox.Context) {
 		c.SendStatus(http.StatusNoContent)
 	})
 
@@ -74,7 +73,7 @@ func BenchmarkRPS_Static(b *testing.B) {
 // Bench: Param route (:id + wildcard)
 func BenchmarkRPS_Param(b *testing.B) {
 	app := newAppCommon()
-	app.OnGet("/users/:id/files/*path", func(c *zentrox.Context) {
+	app.GET("/users/:id/files/*path", func(c *zentrox.Context) {
 		_ = c.Param("id")
 		_ = c.Param("path")
 		c.SendStatus(http.StatusNoContent)
@@ -87,8 +86,8 @@ func BenchmarkRPS_Param(b *testing.B) {
 // Bench: Small JSON (return JSON small)
 func BenchmarkRPS_SmallJSON(b *testing.B) {
 	app := newAppCommon()
-	app.OnGet("/json", func(c *zentrox.Context) {
-		c.SendJSON(http.StatusOK, map[string]any{"ok": true, "n": 123})
+	app.GET("/json", func(c *zentrox.Context) {
+		c.JSON(http.StatusOK, map[string]any{"ok": true, "n": 123})
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/json", nil)
@@ -98,8 +97,8 @@ func BenchmarkRPS_SmallJSON(b *testing.B) {
 // Bench: Small JSON (Parallel)
 func BenchmarkRPS_SmallJSON_Parallel(b *testing.B) {
 	app := newAppCommon()
-	app.OnGet("/json", func(c *zentrox.Context) {
-		c.SendJSON(http.StatusOK, map[string]any{"ok": true, "n": 123})
+	app.GET("/json", func(c *zentrox.Context) {
+		c.JSON(http.StatusOK, map[string]any{"ok": true, "n": 123})
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/json", nil)

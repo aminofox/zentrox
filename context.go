@@ -32,28 +32,28 @@ type Context struct {
 	stack   []Handler
 	store   map[string]any
 
-	aborted bool  // whether the chain has been stopped
-	err     error // last error recorded for this request (if any)
+	aborted bool
+	err     error
 }
 
-// Forward runs the next middleware/handler in the chain.
-func (c *Context) Forward() {
+// Next executes the next handler in the middleware chain
+func (c *Context) Next() {
 	c.index++
 	for c.index < len(c.stack) {
-		c.stack[c.index](c)
 		if c.aborted {
 			return
 		}
+		c.stack[c.index](c)
 		c.index++
 	}
 }
 
-// Abort stops the chain immediately (no response is written automatically).
+// Abort stops the middleware chain
 func (c *Context) Abort() {
 	c.aborted = true
 }
 
-// Aborted reports whether the chain was already stopped.
+// Aborted returns true if the chain was aborted
 func (c *Context) Aborted() bool {
 	return c.aborted
 }
@@ -61,7 +61,7 @@ func (c *Context) Aborted() bool {
 // Fail sends a standardized HTTPError JSON and stops the chain.
 func (c *Context) Fail(code int, message string, detail ...any) {
 	c.err = NewHTTPError(code, message, detail...)
-	c.SendJSON(code, c.err)
+	c.JSON(code, c.err)
 	c.Abort()
 }
 
@@ -309,7 +309,8 @@ func parseHeaderTag(tag, fallback string) (name string, required bool) {
 	return
 }
 
-func (c *Context) SendJSON(code int, v any) {
+// JSON sends a JSON response
+func (c *Context) JSON(code int, v any) {
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
 	c.Writer.WriteHeader(code)
 
@@ -322,19 +323,26 @@ func (c *Context) SendJSON(code int, v any) {
 	}
 }
 
-func (c *Context) SendText(code int, s string) {
+// String sends a plain text response
+func (c *Context) String(code int, format string, values ...any) {
 	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	c.Writer.WriteHeader(code)
-	_, _ = c.Writer.Write([]byte(s))
+	if len(values) > 0 {
+		_, _ = fmt.Fprintf(c.Writer, format, values...)
+	} else {
+		_, _ = c.Writer.Write([]byte(format))
+	}
 }
 
-func (c *Context) SendHTML(code int, html string) {
+// HTML sends an HTML response
+func (c *Context) HTML(code int, html string) {
 	c.Writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	c.Writer.WriteHeader(code)
 	_, _ = c.Writer.Write([]byte(html))
 }
 
-func (c *Context) SendXML(code int, v any) {
+// XML sends an XML response
+func (c *Context) XML(code int, v any) {
 	c.Writer.Header().Set("Content-Type", "application/xml; charset=utf-8")
 	c.Writer.WriteHeader(code)
 	b, err := xml.Marshal(v)
@@ -345,7 +353,8 @@ func (c *Context) SendXML(code int, v any) {
 	_, _ = c.Writer.Write(b)
 }
 
-func (c *Context) SendData(code int, contentType string, b []byte) {
+// Data sends raw bytes with custom content type
+func (c *Context) Data(code int, contentType string, b []byte) {
 	if contentType != "" {
 		c.Writer.Header().Set("Content-Type", contentType)
 	}
@@ -353,8 +362,8 @@ func (c *Context) SendData(code int, contentType string, b []byte) {
 	_, _ = c.Writer.Write(b)
 }
 
-func (c *Context) SendFile(path string) {
-	http.ServeFile(c.Writer, c.Request, path)
+func (c *Context) Download(filepath string, filename string) {
+	http.ServeFile(c.Writer, c.Request, filepath)
 }
 
 func (c *Context) SendAttachment(path, filename string) {
@@ -364,7 +373,7 @@ func (c *Context) SendAttachment(path, filename string) {
 	c.Writer.Header().Set("Content-Disposition", "attachment; filename="+filename)
 	f, err := os.Open(path)
 	if err != nil {
-		c.SendText(http.StatusNotFound, "file not found")
+		c.String(http.StatusNotFound, "file not found")
 		return
 	}
 	defer f.Close()
@@ -693,7 +702,7 @@ func matchesMedia(acceptVal, candidate string) bool {
 //	})
 func (c *Context) Negotiate(code int, candidates map[string]any) {
 	if len(candidates) == 0 {
-		c.SendText(code, "")
+		c.String(code, "")
 		return
 	}
 	// Keep a stable list of candidate types to use as fallback order
@@ -708,35 +717,35 @@ func (c *Context) Negotiate(code int, candidates map[string]any) {
 
 	switch ct {
 	case "application/json", "application/problem+json":
-		c.SendJSON(code, payload)
+		c.JSON(code, payload)
 	case "text/plain":
 		if s, ok := payload.(string); ok {
-			c.SendText(code, s)
+			c.String(code, s)
 		} else {
-			c.SendText(code, "")
+			c.String(code, "")
 		}
 	case "text/html":
 		if s, ok := payload.(string); ok {
-			c.SendHTML(code, s)
+			c.HTML(code, s)
 		} else {
-			c.SendHTML(code, "")
+			c.HTML(code, "")
 		}
 	case "application/xml", "text/xml":
-		c.SendXML(code, payload)
+		c.XML(code, payload)
 	default:
 		// Fallback to JSON if provided, else first candidate as text
 		if v, ok := candidates["application/json"]; ok {
-			c.SendJSON(code, v)
+			c.JSON(code, v)
 			return
 		}
 		// Try to stringify the first candidate if it is string
 		first := keys[0]
 		if s, ok := candidates[first].(string); ok {
-			c.SendText(code, s)
+			c.String(code, s)
 			return
 		}
 		// Otherwise just JSON the first candidate
-		c.SendJSON(code, candidates[first])
+		c.JSON(code, candidates[first])
 	}
 }
 

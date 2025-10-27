@@ -21,21 +21,21 @@ func main() {
 	app := zentrox.NewApp()
 	app.Plug(middleware.Recovery(), middleware.Logger())
 
-	app.OnGet("/html", func(c *zentrox.Context) {
-		c.SendHTML(http.StatusOK, "<h1>Hello <em>zentrox</em></h1>")
+	app.GET("/html", func(c *zentrox.Context) {
+		c.HTML(http.StatusOK, "<h1>Hello <em>zentrox</em></h1>")
 	})
 
-	app.OnGet("/xml", func(c *zentrox.Context) {
-		c.SendXML(http.StatusOK, Book{ID: 1, Title: "Golang"})
+	app.GET("/xml", func(c *zentrox.Context) {
+		c.XML(http.StatusOK, Book{ID: 1, Title: "Golang"})
 	})
 
-	app.OnGet("/file", func(c *zentrox.Context) {
+	app.GET("/file", func(c *zentrox.Context) {
 		path := "demo.txt"
 		_ = os.WriteFile(path, []byte("zentrox file download"), 0644)
 		c.SendAttachment(path, "zentrox-demo.txt")
 	})
 
-	app.OnGet("/stream", func(c *zentrox.Context) {
+	app.GET("/stream", func(c *zentrox.Context) {
 		c.PushStream(func(w io.Writer, flush func()) {
 			for i := 1; i <= 5; i++ {
 				fmt.Fprintf(w, "chunk %d\n", i)
@@ -45,7 +45,7 @@ func main() {
 		})
 	})
 
-	app.OnGet("/sse", func(c *zentrox.Context) {
+	app.GET("/sse", func(c *zentrox.Context) {
 		c.PushSSE(func(event func(name, data string)) {
 			for i := 1; i <= 3; i++ {
 				event("tick", fmt.Sprintf("%d", i))
