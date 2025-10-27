@@ -15,7 +15,7 @@ func BenchmarkGzip_BigJSON(b *testing.B) {
 	app.Plug(middleware.Gzip())
 
 	payload := "{\"data\":\"" + strings.Repeat("abcdef0123456789", 4096) + "\"}"
-	app.OnGet("/json", func(c *zentrox.Context) {
+	app.GET("/json", func(c *zentrox.Context) {
 		c.SetHeader("Content-Type", "application/json")
 		c.SendBytes(http.StatusOK, []byte(payload))
 	})

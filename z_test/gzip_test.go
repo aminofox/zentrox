@@ -18,9 +18,9 @@ func TestGzip_CompressesBigResponse(t *testing.T) {
 	app.Plug(middleware.Gzip())
 
 	big := strings.Repeat("abcdef0123456789", 1024) // 16KB
-	app.OnGet("/big", func(c *zentrox.Context) {
+	app.GET("/big", func(c *zentrox.Context) {
 		c.SetHeader("Content-Type", "text/plain")
-		c.SendText(http.StatusOK, big)
+		c.String(http.StatusOK, "%s", big)
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/big", nil)
@@ -52,15 +52,15 @@ func TestGzip_SkipSmallAndSkipTypes(t *testing.T) {
 	app.Plug(middleware.Gzip())
 
 	// Small body (<MinSize default 512) should not be compressed
-	app.OnGet("/small", func(c *zentrox.Context) {
+	app.GET("/small", func(c *zentrox.Context) {
 		c.SetHeader("Content-Type", "text/plain")
-		c.SendText(http.StatusOK, "tiny")
+		c.String(http.StatusOK, "tiny")
 	})
 
 	// image content-type should be skipped even if large
 	blob := strings.Repeat("x", 4096)
-	app.OnGet("/image", func(c *zentrox.Context) {
-		c.SendData(http.StatusOK, "image/png", []byte(blob))
+	app.GET("/image", func(c *zentrox.Context) {
+		c.Data(http.StatusOK, "image/png", []byte(blob))
 	})
 
 	for _, path := range []string{"/small", "/image"} {

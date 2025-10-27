@@ -19,17 +19,15 @@ func main() {
 	// Standardize errors & panics
 	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 
-	app.OnGet("/", func(c *zentrox.Context) {
-		c.SendText(http.StatusOK, "zentrox up!")
+	app.GET("/", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "zentrox up!")
 	})
 
-	// Example: standardized error payload (giữ nguyên API của bạn)
-	app.OnGet("/fail", func(c *zentrox.Context) {
+	app.GET("/fail", func(c *zentrox.Context) {
 		c.Fail(http.StatusBadRequest, "invalid argument", map[string]any{"field": "q"})
 	})
 
-	// Example: panic -> 500 standardized JSON
-	app.OnGet("/panic", func(c *zentrox.Context) {
+	app.GET("/panic", func(c *zentrox.Context) {
 		panic("boom")
 	})
 

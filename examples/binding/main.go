@@ -34,22 +34,22 @@ func main() {
 		middleware.Logger(),
 	)
 
-	app.OnPost("/users", func(c *zentrox.Context) {
+	app.POST("/users", func(c *zentrox.Context) {
 		var in CreateUserDTO
 		if err := c.BindInto(&in); err != nil {
-			c.SendJSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
-		c.SendJSON(http.StatusOK, map[string]any{"created": in})
+		c.JSON(http.StatusOK, map[string]any{"created": in})
 	})
 
-	app.OnGet("/search", func(c *zentrox.Context) {
+	app.GET("/search", func(c *zentrox.Context) {
 		var q SearchDTO
 		if err := c.BindQueryInto(&q); err != nil {
-			c.SendJSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+			c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
 			return
 		}
-		c.SendJSON(http.StatusOK, map[string]any{"query": q})
+		c.JSON(http.StatusOK, map[string]any{"query": q})
 	})
 
 	log.Println("listening on :8000")

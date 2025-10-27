@@ -9,7 +9,7 @@ import (
 
 func TestBasic(t *testing.T) {
 	app := zentrox.NewApp()
-	app.OnGet("/hi", func(c *zentrox.Context) { c.SendText(200, "hi") })
+	app.GET("/hi", func(c *zentrox.Context) { c.String(200, "hi") })
 
 	req := httptest.NewRequest("GET", "/hi", nil)
 	w := httptest.NewRecorder()

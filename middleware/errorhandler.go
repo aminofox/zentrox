@@ -37,7 +37,7 @@ func DefaultErrorHandler() ErrorHandlerConfig {
 //     text in a safe envelope.
 //
 // Notes:
-//   - This middleware does NOT swallow the chain prematurely: it runs c.Forward(),
+//   - This middleware does NOT swallow the chain prematurely: it runs c.Next(),
 //     then checks c.Error() and c.Aborted() to decide what to write.
 //   - Prefer installing this early in the middleware stack to cover most failures.
 func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
@@ -57,7 +57,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 				if wantsProblem {
 					c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
 				} else {
-					c.SendJSON(http.StatusInternalServerError, zentrox.HTTPError{
+					c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 						Code:    http.StatusInternalServerError,
 						Message: cfg.DefaultMessage,
 					})
@@ -67,7 +67,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 		}()
 
 		// Continue the chain.
-		c.Forward()
+		c.Next()
 		if c.Aborted() {
 			return
 		}
@@ -90,7 +90,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 					}
 					c.Problem(e.Code, "about:blank", e.Message, detail, c.Request.URL.Path, nil)
 				} else {
-					c.SendJSON(e.Code, e)
+					c.JSON(e.Code, e)
 				}
 				c.Abort()
 				return
@@ -100,7 +100,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 				if wantsProblem {
 					c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
 				} else {
-					c.SendJSON(http.StatusInternalServerError, zentrox.HTTPError{
+					c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 						Code:    http.StatusInternalServerError,
 						Message: cfg.DefaultMessage,
 						Detail:  err.Error(),
