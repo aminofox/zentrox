@@ -41,7 +41,7 @@ func main() {
 
 	app.GET(":id", func(c *zentrox.Context) {
 		txt := handleLogic(c, c.Param("id"), "req-123")
-		c.String(http.StatusOK, txt)
+		c.String(http.StatusOK, "%s", txt)
 	})
 
 	app.GET("/fail", func(c *zentrox.Context) {

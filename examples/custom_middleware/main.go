@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/aminofox/zentrox"
@@ -49,7 +48,7 @@ func main() {
 		})
 		api.GET("/user/:id", AfterAuthGuard(), func(ctx *zentrox.Context) {
 			id := ctx.Param("id")
-			ctx.String(200, fmt.Sprintf("User is %s", id))
+			ctx.String(200, "User is %s", id)
 		})
 		api.GET("/me", func(ctx *zentrox.Context) {
 			ctx.String(200, "me ok")

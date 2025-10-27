@@ -720,7 +720,7 @@ func (c *Context) Negotiate(code int, candidates map[string]any) {
 		c.JSON(code, payload)
 	case "text/plain":
 		if s, ok := payload.(string); ok {
-			c.String(code, s)
+			c.String(code, "%s", s)
 		} else {
 			c.String(code, "")
 		}
@@ -741,7 +741,7 @@ func (c *Context) Negotiate(code int, candidates map[string]any) {
 		// Try to stringify the first candidate if it is string
 		first := keys[0]
 		if s, ok := candidates[first].(string); ok {
-			c.String(code, s)
+			c.String(code, "%s", s)
 			return
 		}
 		// Otherwise just JSON the first candidate

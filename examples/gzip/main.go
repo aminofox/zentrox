@@ -28,7 +28,7 @@ func main() {
 	// Return text/plain (also compressed if client accepts)
 	app.GET("/text", func(c *zentrox.Context) {
 		c.SetHeader("Content-Type", "text/plain; charset=utf-8")
-		c.String(200, longText(8)) //long text to see compression benefits
+		c.String(200, "%s", longText(8))
 	})
 
 	// Returning “image/*” will be ignored by the middleware
