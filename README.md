@@ -20,12 +20,12 @@ func main() {
 
     app.Plug(middleware.Recovery(), middleware.Logger())
 
-    app.OnGet("/", func(c *zentrox.Context) {
-        c.SendText(200, "Hello!")
+    app.GET("/", func(c *zentrox.Context) {
+        c.String(200, "Hello!")
     })
 
-    app.OnGet("/users/:id", func(c *zentrox.Context) {
-        c.SendJSON(200, map[string]string{"id": c.Param("id")})
+    app.GET("/users/:id", func(c *zentrox.Context) {
+        c.JSON(200, map[string]string{"id": c.Param("id")})
     })
 
     app.Run(":8000")
@@ -50,7 +50,7 @@ go get github.com/aminofox/zentrox
 - ✅ **Automatic middleware chaining** - No manual `c.Next()` needed in handlers
 - ✅ **Fast routing** - Compiled trie with path params and wildcards
 - ✅ **Built-in essentials** - CORS, JWT, Gzip, logging, error handling
-- ✅ **OpenAPI/Swagger support** - Auto-generate API documentation
+- ✅ **Swagger support** - Use swaggo with comment annotations for API documentation
 - ✅ **Validation & binding** - Built-in request validation
 - ✅ **Context pooling** - Zero allocations for high performance
 
@@ -59,28 +59,28 @@ go get github.com/aminofox/zentrox
 ## Routing
 
 ```go
-app.OnGet("/path", handler)
-app.OnPost("/path", handler)
-app.OnPut("/path", handler)
-app.OnPatch("/path", handler)
-app.OnDelete("/path", handler)
+app.GET("/path", handler)
+app.POST("/path", handler)
+app.PUT("/path", handler)
+app.PATCH("/path", handler)
+app.DELETE("/path", handler)
 ```
 
 ### Path Parameters
 
 ```go
-app.OnGet("/users/:id", func(c *zentrox.Context) {
+app.GET("/users/:id", func(c *zentrox.Context) {
     id := c.Param("id")
-    c.SendJSON(200, map[string]string{"id": id})
+    c.JSON(200, map[string]string{"id": id})
 })
 ```
 
 ### Wildcards
 
 ```go
-app.OnGet("/files/*filepath", func(c *zentrox.Context) {
+app.GET("/files/*filepath", func(c *zentrox.Context) {
     path := c.Param("filepath")
-    c.SendText(200, path)
+    c.String(200, "File path: %s", path)
 })
 ```
 
@@ -88,8 +88,8 @@ app.OnGet("/files/*filepath", func(c *zentrox.Context) {
 
 ```go
 api := app.Scope("/api")
-api.OnGet("/users", listUsers)
-api.OnPost("/users", createUser)
+api.GET("/users", listUsers)
+api.POST("/users", createUser)
 ```
 
 ---
@@ -109,14 +109,19 @@ app.Plug(
 ### Per-Route Middleware
 
 ```go
-app.OnGet("/secure", authMiddleware, handler)
+app.GET("/secure", authMiddleware, handler)
 ```
 
 ### Group Middleware
 
 ```go
 admin := app.Scope("/admin", authMiddleware)
-admin.OnGet("/stats", statsHandler)
+admin.GET("/stats", statsHandler)
+
+// Or add middleware after creating the group
+apiGroup := app.Scope("/api")
+apiGroup.Use(authMiddleware)
+apiGroup.GET("/users", listUsers)
 ```
 
 ### Custom Middleware
@@ -144,16 +149,6 @@ middleware.Gzip()                               // Response compression
 middleware.JWT(middleware.DefaultJWT(secret))   // JWT auth
 middleware.ErrorHandler(middleware.DefaultErrorHandler()) // Error handling
 ```
-
-**Removed middleware** (keep your project minimal):
-- ~~AccessLog~~ - Use `Logger` or `LoggerWithFunc` instead
-- ~~RequestID~~ - Implement if needed for your use case
-- ~~Metrics~~ - Use external observability tools
-- ~~Timeout~~ - Configure at server level or reverse proxy
-- ~~SimpleTrace~~ - Use proper APM/tracing solutions
-- ~~BodyLimit~~ - Configure at reverse proxy level
-
----
 
 ## CORS (Simplified)
 
@@ -202,9 +197,9 @@ app.Plug(middleware.JWT(middleware.DefaultJWT(secret)))
 Get user in handler:
 
 ```go
-app.OnGet("/me", func(c *zentrox.Context) {
+app.GET("/me", func(c *zentrox.Context) {
     user, _ := c.Get("user")
-    c.SendJSON(200, user)
+    c.JSON(200, user)
 })
 ```
 
@@ -219,13 +214,13 @@ type CreateUser struct {
     Age   int    `json:"age" validate:"min=18,max=130"`
 }
 
-app.OnPost("/users", func(c *zentrox.Context) {
+app.POST("/users", func(c *zentrox.Context) {
     var input CreateUser
     if err := c.BindJSONInto(&input); err != nil {
         c.Fail(400, "invalid input", err.Error())
         return
     }
-    c.SendJSON(201, input)
+    c.JSON(201, input)
 })
 ```
 
@@ -239,24 +234,60 @@ Supported validators:
 
 ---
 
-## OpenAPI/Swagger
+## Swagger/OpenAPI
 
-```go
-b := openapi.New("My API", "1.0.0",
-    openapi.WithServer("http://localhost:8000", "local"),
-)
+Zentrox uses [swaggo](https://github.com/swaggo/swag) for API documentation with comment annotations:
 
-app.SetEnableOpenAPI(true).
-    MountOpenAPI(b, "/openapi.json", "/docs")
+### 1. Install swag CLI
 
-app.OnGetDoc(b, "/users/:id", handler, 
-    openapi.Op().
-        SetSummary("Get user").
-        ResponseJSON(200, User{}, "OK"),
-)
+```bash
+go install github.com/swaggo/swag/cmd/swag@latest
 ```
 
-Visit `http://localhost:8000/docs` for Swagger UI.
+### 2. Add annotations to your code
+
+```go
+package main
+
+import (
+    "github.com/aminofox/zentrox"
+    _ "yourapp/docs" // Import generated docs
+)
+
+// @title           My API
+// @version         1.0
+// @description     This is my API server
+// @host            localhost:8000
+// @BasePath        /api/v1
+
+func main() {
+    app := zentrox.NewApp()
+    
+    // Mount Swagger UI
+    app.ServeSwagger("/swagger")
+    
+    // @Summary      Get user by ID
+    // @Tags         users
+    // @Param        id   path      int  true  "User ID"
+    // @Success      200  {object}  User
+    // @Router       /users/{id} [get]
+    app.GET("/api/v1/users/:id", getUser)
+    
+    app.Run(":8000")
+}
+```
+
+### 3. Generate documentation
+
+```bash
+swag init
+```
+
+### 4. Access Swagger UI
+
+Visit `http://localhost:8000/swagger/index.html`
+
+For more examples, see `examples/swagger_annotations/` directory.
 
 ---
 
@@ -274,10 +305,12 @@ c.BindFormInto(&dst)    // Bind & validate form
 c.BindQueryInto(&dst)   // Bind & validate query
 
 // Output
-c.SendJSON(200, data)   // Send JSON
-c.SendText(200, "ok")   // Send text
-c.SendHTML(200, html)   // Send HTML
-c.SendFile(path)        // Send file
+c.JSON(200, data)       // Send JSON
+c.String(200, "ok")     // Send text (with format support)
+c.HTML(200, html)       // Send HTML
+c.XML(200, data)        // Send XML
+c.Data(200, "text/plain", bytes)  // Send raw bytes
+c.SendStatus(200)       // Send status only
 c.SetHeader("X-ID", id) // Response header
 
 // Storage
@@ -329,34 +362,34 @@ func main() {
     )
 
     // Public routes
-    app.OnGet("/", func(c *zentrox.Context) {
-        c.SendText(200, "Welcome to Zentrox!")
+    app.GET("/", func(c *zentrox.Context) {
+        c.String(200, "Welcome to Zentrox!")
     })
 
-    app.OnGet("/ping", func(c *zentrox.Context) {
-        c.SendJSON(200, map[string]string{"status": "ok"})
+    app.GET("/ping", func(c *zentrox.Context) {
+        c.JSON(200, map[string]string{"status": "ok"})
     })
 
     // API routes
     api := app.Scope("/api")
     
-    api.OnGet("/users/:id", func(c *zentrox.Context) {
+    api.GET("/users/:id", func(c *zentrox.Context) {
         user := User{
             ID:    c.Param("id"),
             Name:  "John Doe",
             Email: "john@example.com",
         }
-        c.SendJSON(200, user)
+        c.JSON(200, user)
     })
 
-    api.OnPost("/users", func(c *zentrox.Context) {
+    api.POST("/users", func(c *zentrox.Context) {
         var user User
         if err := c.BindJSONInto(&user); err != nil {
             c.Fail(400, "invalid input", err.Error())
             return
         }
         user.ID = "generated-id"
-        c.SendJSON(201, user)
+        c.JSON(201, user)
     })
 
     // Protected routes
@@ -366,8 +399,8 @@ func main() {
         RequireExp: true,
     }))
 
-    admin.OnGet("/stats", func(c *zentrox.Context) {
-        c.SendJSON(200, map[string]int{
+    admin.GET("/stats", func(c *zentrox.Context) {
+        c.JSON(200, map[string]int{
             "users":  100,
             "orders": 50,
         })
@@ -379,23 +412,6 @@ func main() {
 
 ---
 
-## Migration from Old API
-
-If you're upgrading from older versions:
-
-### Middleware Changes
-- ✅ `c.Forward()` → `c.Next()` (automatic in middleware)
-- ✅ `CORS` + `StrictCORS` → Single `CORS` config
-- ✅ `JWT` + `JWTChecks` → Single `JWT` config
-
-### What Stayed the Same
-- ✅ All route methods (`OnGet`, `OnPost`, etc.)
-- ✅ Context API (`Param`, `Query`, `SendJSON`, etc.)
-- ✅ Binding and validation
-- ✅ Performance optimizations
-
----
-
 ## Why Zentrox?
 
 - **Minimal by Design**: Only 6 essential middleware - no bloat, easy to understand
@@ -403,7 +419,7 @@ If you're upgrading from older versions:
 - **Easy Integration**: Custom logger and JWT support to fit your existing systems
 - **Faster routing**: Compiled trie-based router with ~2M rps
 - **Better defaults**: Security and performance out of the box
-- **Modern features**: Built-in OpenAPI, validation, automatic middleware chaining
+- **Modern features**: Built-in Swagger (via swaggo), validation, automatic middleware chaining
 - **Production-ready**: Context pooling, panic recovery, zero allocations
 
 ---
