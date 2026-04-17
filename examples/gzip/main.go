@@ -17,7 +17,7 @@ func main() {
 	)
 
 	app.GET("/json", func(c *zentrox.Context) {
-		c.SetHeader("Content-Type", "application/json; charset=utf-8")
+		c.SetHeader(zentrox.HeaderContentType, zentrox.ContentTypeJSONUTF8)
 		c.JSON(200, map[string]any{
 			"message": "hello, gzip!",
 			"time":    time.Now().Format(time.RFC3339),
@@ -27,13 +27,13 @@ func main() {
 
 	// Return text/plain (also compressed if client accepts)
 	app.GET("/text", func(c *zentrox.Context) {
-		c.SetHeader("Content-Type", "text/plain; charset=utf-8")
+		c.SetHeader(zentrox.HeaderContentType, zentrox.ContentTypeTextUTF8)
 		c.String(200, "%s", longText(8))
 	})
 
 	// Returning “image/*” will be ignored by the middleware
 	app.GET("/image", func(c *zentrox.Context) {
-		c.SetHeader("Content-Type", "image/png")
+		c.SetHeader(zentrox.HeaderContentType, "image/png")
 		c.SendBytes(200, []byte{0x89, 0x50, 0x4E, 0x47})
 	})
 

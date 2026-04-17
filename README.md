@@ -138,7 +138,7 @@ func MyMiddleware() zentrox.Handler {
 
 ### Built-in Middleware
 
-Zentrox includes only essential middleware for a minimal footprint:
+Zentrox includes essential middleware plus lightweight utilities:
 
 ```go
 middleware.Recovery()                           // Panic recovery
@@ -146,8 +146,11 @@ middleware.Logger()                             // Request logging
 middleware.LoggerWithFunc(customLogFn)          // Custom logger integration
 middleware.CORS(middleware.DefaultCORS())       // CORS headers
 middleware.Gzip()                               // Response compression
-middleware.JWT(middleware.DefaultJWT(secret))   // JWT auth
+middleware.JWT(middleware.JWTConfig{Secret: secret}) // JWT auth
 middleware.ErrorHandler(middleware.DefaultErrorHandler()) // Error handling
+middleware.RequestID(middleware.DefaultRequestID()) // Request ID propagation
+middleware.RateLimit(middleware.DefaultRateLimit()) // Token-bucket rate limit
+middleware.Timeout(2 * time.Second)             // Request context timeout
 ```
 
 ## CORS (Simplified)
@@ -175,23 +178,23 @@ app.Plug(middleware.CORS(middleware.DefaultCORS()))
 One simple config - no more separate JWT and JWTChecks:
 
 ```go
+import (
+    "errors"
+    "time"
+)
+
 secret := []byte("your-secret-key")
 
 app.Plug(middleware.JWT(middleware.JWTConfig{
-    Secret:      secret,
-    ContextKey:  "user",
-    RequireExp:  true,
-    Issuer:      "your-app",
-    Audience:    "api",
-    ClockSkew:   60 * time.Second,
-    AllowedAlgs: []string{"HS256"},
+	Secret:     secret,
+	ContextKey: "user",
+	ValidateFunc: func(claims map[string]any) error {
+		if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() > int64(exp) {
+			return errors.New("token expired")
+		}
+		return nil
+	},
 }))
-```
-
-Or use defaults:
-
-```go
-app.Plug(middleware.JWT(middleware.DefaultJWT(secret)))
 ```
 
 Get user in handler:
@@ -200,6 +203,43 @@ Get user in handler:
 app.GET("/me", func(c *zentrox.Context) {
     user, _ := c.Get("user")
     c.JSON(200, user)
+})
+```
+
+## Request ID
+
+```go
+app.Plug(middleware.RequestID(middleware.DefaultRequestID()))
+
+app.GET("/trace", func(c *zentrox.Context) {
+    c.JSON(200, map[string]any{"request_id": c.RequestID()})
+})
+```
+
+## Rate Limit
+
+```go
+app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
+    Rate:  20, // requests/sec
+    Burst: 40,
+    KeyFunc: func(c *zentrox.Context) string {
+        return c.RealIP()
+    },
+}))
+```
+
+## Timeout
+
+```go
+app.Plug(middleware.Timeout(2 * time.Second))
+
+app.GET("/slow", func(c *zentrox.Context) {
+    select {
+    case <-time.After(3 * time.Second):
+        c.String(200, "done")
+    case <-c.Done():
+        return
+    }
 })
 ```
 
@@ -287,7 +327,19 @@ swag init
 
 Visit `http://localhost:8000/swagger/index.html`
 
-For more examples, see `examples/swagger_annotations/` directory.
+For more examples, see `examples/` (including `examples/platform_middleware/`).
+
+## Examples Matrix
+
+- `examples/minimal/` - Smallest setup, logger integration, basic JWT-protected route
+- `examples/basic/` - Core routing, lifecycle hooks, static files, upload helpers
+- `examples/binding/` - JSON/form/query binding + validation
+- `examples/custom_middleware/` - How to write and chain custom middleware
+- `examples/jwt_custom/` - JWT with custom claim validation policy
+- `examples/gzip/` - Compression behavior and skip-by-content-type usage
+- `examples/rendering/` - HTML/XML/file download/streaming/SSE responses
+- `examples/graceful/` - `Start` + graceful `Shutdown` with signals and health endpoints
+- `examples/platform_middleware/` - RequestID + RateLimit + Timeout middleware together
 
 ---
 
@@ -395,8 +447,7 @@ func main() {
     // Protected routes
     secret := []byte("your-secret-key")
     admin := app.Scope("/admin", middleware.JWT(middleware.JWTConfig{
-        Secret:     secret,
-        RequireExp: true,
+        Secret: secret,
     }))
 
     admin.GET("/stats", func(c *zentrox.Context) {
@@ -414,7 +465,7 @@ func main() {
 
 ## Why Zentrox?
 
-- **Minimal by Design**: Only 6 essential middleware - no bloat, easy to understand
+- **Minimal by Design**: Focused middleware set - no bloat, easy to understand
 - **Clean API**: Less boilerplate, cleaner patterns, better defaults
 - **Easy Integration**: Custom logger and JWT support to fit your existing systems
 - **Faster routing**: Compiled trie-based router with ~2M rps

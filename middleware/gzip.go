@@ -37,11 +37,11 @@ var defaultGzipOptions = GzipOptions{
 	SkipTypes: []string{"image/", "video/", "audio/", "application/zip", "application/gzip"},
 	SkipIf: func(c *zentrox.Context) bool {
 		// Skip SSE and websocket upgrades
-		ct := c.Writer.Header().Get("Content-Type")
-		if strings.HasPrefix(ct, "text/event-stream") { // SSE
+		ct := c.Writer.Header().Get(zentrox.HeaderContentType)
+		if strings.HasPrefix(ct, zentrox.ContentTypeEventStream) { // SSE
 			return true
 		}
-		if strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade") {
+		if strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderConnection)), "upgrade") {
 			return true
 		}
 		return false
@@ -77,11 +77,11 @@ func GzipWithOptions(opt GzipOptions) zentrox.Handler {
 			c.Next()
 			return
 		}
-		if !strings.Contains(c.GetHeader("Accept-Encoding"), "gzip") {
+		if !strings.Contains(c.GetHeader(zentrox.HeaderAcceptEncoding), "gzip") {
 			c.Next()
 			return
 		}
-		if strings.Contains(strings.ToLower(c.GetHeader("Connection")), "upgrade") {
+		if strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderConnection)), "upgrade") {
 			c.Next()
 			return
 		}
@@ -137,7 +137,7 @@ func (g *gzipBufferingRW) maybeDecide(startGzip bool) {
 	}
 
 	// Check content-type based skipping
-	ct := g.Header().Get("Content-Type")
+	ct := g.Header().Get(zentrox.HeaderContentType)
 	for _, pre := range g.opt.SkipTypes {
 		if pre != "" && strings.HasPrefix(ct, pre) {
 			startGzip = false
@@ -153,9 +153,9 @@ func (g *gzipBufferingRW) maybeDecide(startGzip bool) {
 		g.usingGzip = true
 		// Adjust headers
 		h := g.Header()
-		h.Del("Content-Length")
-		h.Set("Content-Encoding", "gzip")
-		h.Add("Vary", "Accept-Encoding")
+		h.Del(zentrox.HeaderContentLength)
+		h.Set(zentrox.HeaderContentEncoding, "gzip")
+		h.Add(zentrox.HeaderVary, zentrox.HeaderAcceptEncoding)
 		if !g.wroteHeader {
 			g.status = http.StatusOK
 			g.wroteHeader = true

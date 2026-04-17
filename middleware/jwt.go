@@ -24,28 +24,28 @@ func JWT(cfg JWTConfig) zentrox.Handler {
 	}
 
 	return func(c *zentrox.Context) {
-		auth := c.GetHeader("Authorization")
-		if !strings.HasPrefix(auth, "Bearer ") {
+		auth := c.GetHeader(zentrox.HeaderAuthorization)
+		if !strings.HasPrefix(auth, zentrox.BearerPrefix) {
 			if cfg.SkipIfMissing {
 				c.Next()
 				return
 			}
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "missing token"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgMissingToken})
 			c.Abort()
 			return
 		}
 
-		token := strings.TrimPrefix(auth, "Bearer ")
+		token := strings.TrimPrefix(auth, zentrox.BearerPrefix)
 		parts := strings.Split(token, ".")
 		if len(parts) != 3 {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgInvalidToken})
 			c.Abort()
 			return
 		}
 
 		hb, err := base64.RawURLEncoding.DecodeString(parts[0])
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgInvalidToken})
 			c.Abort()
 			return
 		}
@@ -54,13 +54,13 @@ func JWT(cfg JWTConfig) zentrox.Handler {
 			Alg string `json:"alg"`
 		}
 		if err := json.Unmarshal(hb, &hdr); err != nil {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgInvalidToken})
 			c.Abort()
 			return
 		}
 
 		if hdr.Alg != "HS256" {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "unsupported algorithm"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgUnsupportedAlg})
 			c.Abort()
 			return
 		}
@@ -71,21 +71,21 @@ func JWT(cfg JWTConfig) zentrox.Handler {
 		want := mac.Sum(nil)
 		got, err := base64.RawURLEncoding.DecodeString(parts[2])
 		if err != nil || !hmac.Equal(got, want) {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid signature"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgInvalidSignature})
 			c.Abort()
 			return
 		}
 
 		pb, err := base64.RawURLEncoding.DecodeString(parts[1])
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgInvalidToken})
 			c.Abort()
 			return
 		}
 
 		var claims map[string]any
 		if err := json.Unmarshal(pb, &claims); err != nil {
-			c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid token"})
+			c.JSON(http.StatusUnauthorized, map[string]string{"error": zentrox.MsgInvalidToken})
 			c.Abort()
 			return
 		}

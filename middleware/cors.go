@@ -44,7 +44,7 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 	}
 
 	return func(c *zentrox.Context) {
-		origin := c.GetHeader("Origin")
+		origin := c.GetHeader(zentrox.HeaderOrigin)
 		h := c.Writer.Header()
 
 		if origin == "" {
@@ -61,26 +61,26 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 		}
 
 		if acao != "" {
-			h.Set("Access-Control-Allow-Origin", acao)
+			h.Set(zentrox.HeaderAccessControlAllowOrigin, acao)
 		}
 
 		if allowMethods != "" {
-			h.Set("Access-Control-Allow-Methods", allowMethods)
+			h.Set(zentrox.HeaderAccessControlAllowMethods, allowMethods)
 		}
 		if allowHeaders != "" {
-			h.Set("Access-Control-Allow-Headers", allowHeaders)
+			h.Set(zentrox.HeaderAccessControlAllowHeaders, allowHeaders)
 		}
 		if exposeHeaders != "" {
-			h.Set("Access-Control-Expose-Headers", exposeHeaders)
+			h.Set(zentrox.HeaderAccessControlExposeHeaders, exposeHeaders)
 		}
 		if cfg.AllowCredentials {
-			h.Set("Access-Control-Allow-Credentials", "true")
+			h.Set(zentrox.HeaderAccessControlAllowCredentials, "true")
 		}
 		if cfg.MaxAge > 0 {
-			h.Set("Access-Control-Max-Age", maxAge)
+			h.Set(zentrox.HeaderAccessControlMaxAge, maxAge)
 		}
 
-		h.Add("Vary", "Origin")
+		h.Add(zentrox.HeaderVary, zentrox.HeaderOrigin)
 
 		if c.Request.Method == http.MethodOptions {
 			c.SendStatus(http.StatusNoContent)

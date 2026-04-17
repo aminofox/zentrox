@@ -16,12 +16,12 @@ func BenchmarkGzip_BigJSON(b *testing.B) {
 
 	payload := "{\"data\":\"" + strings.Repeat("abcdef0123456789", 4096) + "\"}"
 	app.GET("/json", func(c *zentrox.Context) {
-		c.SetHeader("Content-Type", "application/json")
+		c.SetHeader(zentrox.HeaderContentType, zentrox.ContentTypeJSON)
 		c.SendBytes(http.StatusOK, []byte(payload))
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/json", nil)
-	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set(zentrox.HeaderAcceptEncoding, "gzip")
 	w := httptest.NewRecorder()
 
 	b.ReportAllocs()

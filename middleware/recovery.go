@@ -14,7 +14,7 @@ func Recovery() zentrox.Handler {
 				log.Printf("panic: %v", r)
 				c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 					Code:    http.StatusInternalServerError,
-					Message: "internal server error",
+					Message: zentrox.MsgInternalServerError,
 				})
 				c.Abort()
 			}

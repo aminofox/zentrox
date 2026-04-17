@@ -1,6 +1,7 @@
 package zentrox
 
 import (
+	"bufio"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path"
 	"path/filepath"
@@ -61,6 +63,9 @@ type App struct {
 	printRoutes bool
 	// registry all registered routes
 	routeIndex map[string]RouteInfo
+
+	trustedProxies []netip.Prefix
+	trustAllProxy  bool
 }
 
 // ServerConfig controls the underlying http.Server configuration.
@@ -154,9 +159,11 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Acquire a pooled Context instance.
 	ctx := acquireContext(w, r)
 	defer releaseContext(ctx)
+	ctx.realIP = a.clientIP
 
 	// Wrap writer to capture status/bytes for onResponse.
 	rr := &respRecorder{ResponseWriter: w}
+	ctx.Writer = rr
 	// Lifecycle: onRequest
 	if a.onRequest != nil {
 		a.onRequest(ctx)
@@ -205,7 +212,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if entry == nil {
 		allow := a.rt.allowed(r.URL.Path)
 		if len(allow) > 0 {
-			rr.Header().Set("Allow", strings.Join(allow, ", "))
+			rr.Header().Set(HeaderAllow, strings.Join(allow, ", "))
 
 			if r.Method == http.MethodOptions {
 				rr.WriteHeader(http.StatusNoContent)
@@ -388,6 +395,122 @@ func (a *App) SetPrintRoutes(v bool) *App {
 	return a
 }
 
+// SetTrustedProxies configures proxy ranges allowed to provide client IP headers.
+// By default, no proxy is trusted and RealIP() falls back to RemoteAddr.
+// Accepts CIDR blocks (e.g. "10.0.0.0/8") and single IPs (e.g. "127.0.0.1").
+// Use "*" to trust all proxies.
+func (a *App) SetTrustedProxies(values ...string) *App {
+	a.trustedProxies = nil
+	a.trustAllProxy = false
+
+	for _, raw := range values {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		if raw == "*" {
+			a.trustAllProxy = true
+			continue
+		}
+
+		if !strings.Contains(raw, "/") {
+			ip, err := netip.ParseAddr(raw)
+			if err != nil {
+				panic("SetTrustedProxies: invalid ip " + raw)
+			}
+			bits := 32
+			if ip.Is6() {
+				bits = 128
+			}
+			a.trustedProxies = append(a.trustedProxies, netip.PrefixFrom(ip, bits))
+			continue
+		}
+
+		p, err := netip.ParsePrefix(raw)
+		if err != nil {
+			panic("SetTrustedProxies: invalid cidr " + raw)
+		}
+		a.trustedProxies = append(a.trustedProxies, p.Masked())
+	}
+
+	return a
+}
+
+func (a *App) isTrustedProxy(ip netip.Addr) bool {
+	if !ip.IsValid() {
+		return false
+	}
+	if a.trustAllProxy {
+		return true
+	}
+	for _, p := range a.trustedProxies {
+		if p.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitHostIP(remoteAddr string) netip.Addr {
+	host, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		host = remoteAddr
+	}
+	ip, err := netip.ParseAddr(strings.TrimSpace(host))
+	if err != nil {
+		return netip.Addr{}
+	}
+	return ip
+}
+
+func parseHeaderIPs(v string) []netip.Addr {
+	if v == "" {
+		return nil
+	}
+	parts := strings.Split(v, ",")
+	out := make([]netip.Addr, 0, len(parts))
+	for _, p := range parts {
+		ip, err := netip.ParseAddr(strings.TrimSpace(p))
+		if err == nil {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
+func (a *App) clientIP(r *http.Request) string {
+	if r == nil {
+		return ""
+	}
+	remote := splitHostIP(r.RemoteAddr)
+	if !remote.IsValid() {
+		return ""
+	}
+
+	if !a.isTrustedProxy(remote) {
+		return remote.String()
+	}
+
+	xff := parseHeaderIPs(r.Header.Get(HeaderXForwardedFor))
+	if len(xff) > 0 {
+		chain := append(xff, remote)
+		for i := len(chain) - 1; i >= 0; i-- {
+			if !a.isTrustedProxy(chain[i]) {
+				return chain[i].String()
+			}
+		}
+		return chain[0].String()
+	}
+
+	if xr := strings.TrimSpace(r.Header.Get(HeaderXRealIP)); xr != "" {
+		if ip, err := netip.ParseAddr(xr); err == nil {
+			return ip.String()
+		}
+	}
+
+	return remote.String()
+}
+
 // Get route list (copy & sort for stability)
 func (a *App) ListRoutes() []RouteInfo {
 	if len(a.routeIndex) == 0 {
@@ -498,11 +621,19 @@ func (s *Scope) on(method, rel string, hs ...Handler) {
 	if len(hs) == 0 {
 		panic("zentrox: Scope.On requires at least one handler")
 	}
+	fullPath := s.prefix + rel
 	h := hs[len(hs)-1]
 	mws := hs[:len(hs)-1]
 	stack := append(s.app.plug, append(s.plug, mws...)...)
-	s.app.rt.add(method, s.prefix+rel, stack, h)
-	s.app.trackRoute(method, s.prefix+rel, h, stack)
+	s.app.rt.add(method, fullPath, stack, h)
+	s.app.trackRoute(method, fullPath, h, stack)
+
+	if method != http.MethodOptions {
+		optHandler := func(c *Context) {
+			c.SendStatus(http.StatusNoContent)
+		}
+		s.app.rt.add(http.MethodOptions, fullPath, stack, optHandler)
+	}
 }
 
 // GET registers a route for GET requests
@@ -564,6 +695,7 @@ func acquireContext(w http.ResponseWriter, r *http.Request) *Context {
 	c.index = -1
 	c.aborted = false
 	c.err = nil
+	c.realIP = nil
 	// params/store already exists; release will only delete the key
 	return c
 }
@@ -583,6 +715,7 @@ func releaseContext(c *Context) {
 	c.err = nil
 	c.aborted = false
 	c.index = -1
+	c.realIP = nil
 
 	ctxPool.Put(c)
 }
@@ -617,6 +750,18 @@ type respRecorder struct {
 	bytes  int
 }
 
+func (w *respRecorder) Status() int {
+	return w.status
+}
+
+func (w *respRecorder) BytesWritten() int {
+	return w.bytes
+}
+
+func (w *respRecorder) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 func (w *respRecorder) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
@@ -629,6 +774,28 @@ func (w *respRecorder) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.bytes += n
 	return n, err
+}
+
+func (w *respRecorder) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *respRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacker not supported")
+	}
+	return h.Hijack()
+}
+
+func (w *respRecorder) Push(target string, opts *http.PushOptions) error {
+	p, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return p.Push(target, opts)
 }
 
 // StaticOptions controls behavior of Static(...)
@@ -679,6 +846,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 
 	// Register GET and HEAD with wildcard for subpaths.
 	pat := prefix + "/*filepath"
+	rootPath := prefix
 	h := func(c *Context) {
 		rel := c.Param("filepath")
 		// When requesting the prefix root ("/assets" == "/assets/"), serve index if allowed
@@ -686,7 +854,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 			if !opt.DisableIndex && opt.Index != "" {
 				rel = "/" + opt.Index
 			} else {
-				c.String(http.StatusNotFound, "not found")
+				c.String(http.StatusNotFound, MsgNotFound)
 				return
 			}
 		}
@@ -694,12 +862,12 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		// Clean and join; prevent traversal outside root
 		clean := filepath.Clean(rel)
 		if strings.HasPrefix(clean, "..") {
-			c.String(http.StatusForbidden, "forbidden")
+			c.String(http.StatusForbidden, MsgForbidden)
 			return
 		}
 		target := filepath.Join(root, strings.TrimPrefix(clean, string(filepath.Separator)))
 		if !isWithinBase(root, target) {
-			c.String(http.StatusForbidden, "forbidden")
+			c.String(http.StatusForbidden, MsgForbidden)
 			return
 		}
 
@@ -707,7 +875,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		if len(allow) > 0 {
 			ext := strings.ToLower(filepath.Ext(target))
 			if _, ok := allow[ext]; !ok {
-				c.String(http.StatusForbidden, "forbidden")
+				c.String(http.StatusForbidden, MsgForbidden)
 				return
 			}
 		}
@@ -716,10 +884,10 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		fi, err := os.Stat(target)
 		if err != nil {
 			if errors.Is(err, os.ErrNotExist) {
-				c.String(http.StatusNotFound, "not found")
+				c.String(http.StatusNotFound, MsgNotFound)
 				return
 			}
-			c.String(http.StatusInternalServerError, "stat error")
+			c.String(http.StatusInternalServerError, MsgStatError)
 			return
 		}
 		if fi.IsDir() {
@@ -728,11 +896,11 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 				target = filepath.Join(target, opt.Index)
 				fi, err = os.Stat(target)
 				if err != nil || fi.IsDir() {
-					c.String(http.StatusNotFound, "not found")
+					c.String(http.StatusNotFound, MsgNotFound)
 					return
 				}
 			} else {
-				c.String(http.StatusNotFound, "not found")
+				c.String(http.StatusNotFound, MsgNotFound)
 				return
 			}
 		}
@@ -748,26 +916,26 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 			etag = `W/"` + strconv.FormatInt(fi.Size(), 10) + "-" + strconv.FormatInt(lastMod.Unix(), 10) + `"`
 		}
 		if etag != "" {
-			c.SetHeader("ETag", etag)
+			c.SetHeader(HeaderETag, etag)
 		}
-		c.SetHeader("Last-Modified", lastMod.Format(http.TimeFormat))
+		c.SetHeader(HeaderLastModified, lastMod.Format(http.TimeFormat))
 
 		// Cache control
 		if opt.MaxAge > 0 {
 			sec := int(opt.MaxAge / time.Second)
-			c.SetHeader("Cache-Control", "public, max-age="+strconv.Itoa(sec))
+			c.SetHeader(HeaderCacheControl, "public, max-age="+strconv.Itoa(sec))
 		} else {
-			c.SetHeader("Cache-Control", "no-cache")
+			c.SetHeader(HeaderCacheControl, CacheControlNoCache)
 		}
 
 		// Conditional requests
-		if inm := c.GetHeader("If-None-Match"); inm != "" && etag != "" {
+		if inm := c.GetHeader(HeaderIfNoneMatch); inm != "" && etag != "" {
 			if etagMatch(inm, etag) {
 				c.Writer.WriteHeader(http.StatusNotModified)
 				return
 			}
 		}
-		if ims := c.GetHeader("If-Modified-Since"); ims != "" {
+		if ims := c.GetHeader(HeaderIfModifiedSince); ims != "" {
 			if t, err := time.Parse(http.TimeFormat, ims); err == nil {
 				// If not modified since, return 304
 				if !lastMod.After(t) {
@@ -779,7 +947,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 
 		// Content-Type best effort
 		if ct := mime.TypeByExtension(filepath.Ext(target)); ct != "" {
-			c.SetHeader("Content-Type", ct)
+			c.SetHeader(HeaderContentType, ct)
 		}
 
 		// HEAD should not write body
@@ -791,7 +959,7 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		// Stream the file to client
 		f, err := os.Open(target)
 		if err != nil {
-			c.String(http.StatusInternalServerError, "open error")
+			c.String(http.StatusInternalServerError, MsgOpenError)
 			return
 		}
 		defer f.Close()
@@ -801,8 +969,10 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 	}
 
 	a.GET(pat, h)
+	a.GET(rootPath, h)
 	// Reuse GET handler for HEAD (HEAD auto fallback also exists, but register explicit)
 	a.on(http.MethodHead, pat, h)
+	a.on(http.MethodHead, rootPath, h)
 }
 
 // isWithinBase ensures child is inside base to prevent path traversal.
