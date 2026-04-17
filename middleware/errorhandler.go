@@ -21,7 +21,7 @@ type ErrorHandlerConfig struct {
 func DefaultErrorHandler() ErrorHandlerConfig {
 	return ErrorHandlerConfig{
 		LogPanic:       true,
-		DefaultMessage: "internal server error",
+		DefaultMessage: zentrox.MsgInternalServerError,
 	}
 }
 
@@ -42,7 +42,7 @@ func DefaultErrorHandler() ErrorHandlerConfig {
 //   - Prefer installing this early in the middleware stack to cover most failures.
 func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 	if cfg.DefaultMessage == "" {
-		cfg.DefaultMessage = "internal server error"
+		cfg.DefaultMessage = zentrox.MsgInternalServerError
 	}
 
 	return func(c *zentrox.Context) {
@@ -53,7 +53,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 					log.Printf("panic: %v", r)
 				}
 				// Respect content negotiation for problem+json.
-				wantsProblem := strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/problem+json")
+				wantsProblem := strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderAccept)), zentrox.ContentTypeProblemJSON)
 				if wantsProblem {
 					c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
 				} else {
@@ -74,7 +74,7 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 
 		// If a handler recorded an error, render it now.
 		if err := c.Error(); err != nil {
-			wantsProblem := strings.Contains(strings.ToLower(c.GetHeader("Accept")), "application/problem+json")
+			wantsProblem := strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderAccept)), zentrox.ContentTypeProblemJSON)
 
 			switch e := err.(type) {
 			case zentrox.HTTPError:

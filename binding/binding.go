@@ -1,6 +1,7 @@
 package binding
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -20,6 +21,13 @@ type Binder interface {
 type jsonBinder struct{}
 type formBinder struct{}
 type queryBinder struct{}
+
+const (
+	headerContentType         = "Content-Type"
+	contentTypeJSON           = "application/json"
+	contentTypeMultipartForm  = "multipart/form-data"
+	contentTypeFormURLEncoded = "application/x-www-form-urlencoded"
+)
 
 var (
 	JSON  = jsonBinder{}
@@ -60,17 +68,17 @@ func (queryBinder) Bind(r *http.Request, dst any) error {
 
 // Auto detect: JSON -> Form -> Query
 func Bind(r *http.Request, dst any) error {
-	ct := r.Header.Get("Content-Type")
-	if strings.HasPrefix(ct, "application/json") {
+	ct := r.Header.Get(headerContentType)
+	if strings.HasPrefix(ct, contentTypeJSON) {
 		return JSON.Bind(r, dst)
 	}
-	if strings.HasPrefix(ct, "multipart/form-data") || strings.HasPrefix(ct, "application/x-www-form-urlencoded") {
+	if strings.HasPrefix(ct, contentTypeMultipartForm) || strings.HasPrefix(ct, contentTypeFormURLEncoded) {
 		return Form.Bind(r, dst)
 	}
 	if r.Body != nil {
 		b, _ := io.ReadAll(r.Body)
 		_ = r.Body.Close()
-		r.Body = io.NopCloser(strings.NewReader(string(b)))
+		r.Body = io.NopCloser(bytes.NewReader(b))
 		if len(b) > 0 {
 			return JSON.Bind(r, dst)
 		}

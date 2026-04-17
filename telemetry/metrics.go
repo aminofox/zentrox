@@ -7,6 +7,8 @@ import (
 	"time"
 )
 
+const contentTypeTextUTF8 = "text/plain; charset=utf-8"
+
 // Counter is a simple, mutex-protected counter.
 type Counter struct {
 	mu  sync.Mutex
@@ -91,7 +93,7 @@ func NewRegistry() *Registry {
 // MetricsHandler renders a plain-text snapshot (prometheus-like style).
 func MetricsHandler(reg *Registry) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Type", contentTypeTextUTF8)
 		fmt.Fprintf(w, "uptime_seconds %d\n", int(time.Since(reg.StartAt).Seconds()))
 		fmt.Fprintf(w, "requests_total %d\n", reg.Requests.Load())
 

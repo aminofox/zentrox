@@ -39,7 +39,7 @@ func TestJWT_ValidToken(t *testing.T) {
 	tok, _ := middleware.SignHS256(claims, secret)
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
-	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set(zentrox.HeaderAuthorization, zentrox.BearerPrefix+tok)
 	w := httptest.NewRecorder()
 	app.ServeHTTP(w, req)
 	if w.Code != 200 {
@@ -67,7 +67,7 @@ func TestJWT_ExpiredToken(t *testing.T) {
 	tok, _ := middleware.SignHS256(claims, secret)
 
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
-	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set(zentrox.HeaderAuthorization, zentrox.BearerPrefix+tok)
 	w := httptest.NewRecorder()
 	app.ServeHTTP(w, req)
 	if w.Code != http.StatusUnauthorized {

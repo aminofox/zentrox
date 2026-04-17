@@ -2,6 +2,45 @@
 
 This document summarizes the major simplifications made to make Zentrox easier to integrate into other projects.
 
+## Latest updates (framework hardening)
+
+### Fixed
+
+- **JWT docs aligned with real API**
+  - Updated README examples to match `middleware.JWTConfig` fields actually available.
+  - Removed references to non-existent `DefaultJWT(...)` helper.
+
+- **Accurate response status capture in lifecycle hooks**
+  - `ServeHTTP` now routes framework response writing through recorder wrapper so `onResponse` and logger status reporting are correct.
+  - Recorder now supports common response interfaces (`Flush`, `Hijack`, `Push`) to preserve compatibility.
+
+- **Static root path behavior**
+  - `Static("/assets", ...)` now also handles `/assets` (not only wildcard subpaths).
+
+- **Scope OPTIONS consistency**
+  - Auto-`OPTIONS` registration now behaves consistently between app-level routes and scoped routes.
+
+### Improved
+
+- **Client IP trust model**
+  - Added `SetTrustedProxies(...)` so `RealIP()` only trusts forwarding headers when request comes from trusted proxies.
+
+- **Binding efficiency**
+  - Reduced unnecessary body conversion in auto-bind path by switching to byte-reader based body restore.
+
+### Added
+
+- **New middleware utilities**
+  - `RequestID` middleware for request ID propagation and context storage.
+  - `RateLimit` middleware (in-memory token bucket, keyable by IP/custom key).
+  - `Timeout` middleware for request-context deadline handling.
+
+- **New runnable example**
+  - Added `examples/platform_middleware/` showing `RequestID + RateLimit + Timeout` together.
+
+- **Regression tests for hardening changes**
+  - Added tests for onResponse status capture, scope OPTIONS, static root route, trusted proxy RealIP, and new middleware behaviors.
+
 ## Summary
 
 Zentrox has been streamlined to be minimal, easy to understand, and simple to integrate with existing projects. The focus is on providing essential functionality while allowing developers to customize and extend as needed.
@@ -93,15 +132,15 @@ app.Plug(middleware.LoggerWithFunc(func(method, path string, status int, dur tim
 }))
 ```
 
-### 5. Removed Non-Essential Middleware
+### 5. Removed Non-Essential Middleware (initial simplification phase)
 
 The following middleware was removed to keep the framework minimal:
 - **AccessLog** - Use LoggerWithFunc instead
 - **Metrics** - Use your own metrics library
 - **SimpleTrace** - Use your own tracing solution
-- **Timeout** - Implement at handler level if needed
-- **RequestID** - Implement as custom middleware if needed
 - **Helpers** - Functionality moved to core where needed
+
+Note: later updates re-introduced lightweight built-in `RequestID`, `RateLimit`, and `Timeout` middleware to cover common package-level needs while keeping the framework minimal.
 
 ### 6. Examples Over Documentation
 
@@ -141,8 +180,10 @@ ValidateFunc: func(claims map[string]any) error {
 ### If you were using deleted middleware
 - AccessLog → Use `middleware.LoggerWithFunc(yourLogger)`
 - Metrics → Use Prometheus or your metrics library directly
-- RequestID → Create custom middleware if needed
-- Timeout → Use `http.TimeoutHandler` or context timeout
+
+### If you need request ID / timeout now
+- RequestID → Use `middleware.RequestID(middleware.DefaultRequestID())`
+- Timeout → Use `middleware.Timeout(duration)`
 
 ## Benefits
 

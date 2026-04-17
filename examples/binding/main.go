@@ -26,7 +26,7 @@ func main() {
 		middleware.CORS(middleware.CORSConfig{
 			AllowOrigins:     []string{"http://localhost:5173", "*"},
 			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"Content-Type", "Authorization"},
+			AllowHeaders:     []string{zentrox.HeaderContentType, zentrox.HeaderAuthorization},
 			AllowCredentials: false,
 			MaxAge:           3600,
 		}),

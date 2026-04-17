@@ -19,19 +19,19 @@ func TestGzip_CompressesBigResponse(t *testing.T) {
 
 	big := strings.Repeat("abcdef0123456789", 1024) // 16KB
 	app.GET("/big", func(c *zentrox.Context) {
-		c.SetHeader("Content-Type", "text/plain")
+		c.SetHeader(zentrox.HeaderContentType, "text/plain")
 		c.String(http.StatusOK, "%s", big)
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/big", nil)
-	req.Header.Set("Accept-Encoding", "gzip")
+	req.Header.Set(zentrox.HeaderAcceptEncoding, "gzip")
 	w := httptest.NewRecorder()
 	app.ServeHTTP(w, req)
 
-	if enc := w.Header().Get("Content-Encoding"); enc != "gzip" {
+	if enc := w.Header().Get(zentrox.HeaderContentEncoding); enc != "gzip" {
 		t.Fatalf("expected gzip encoding, got %q", enc)
 	}
-	if vary := w.Header().Get("Vary"); !strings.Contains(strings.ToLower(vary), "accept-encoding") {
+	if vary := w.Header().Get(zentrox.HeaderVary); !strings.Contains(strings.ToLower(vary), "accept-encoding") {
 		t.Fatalf("expected Vary: Accept-Encoding, got %q", vary)
 	}
 
@@ -53,7 +53,7 @@ func TestGzip_SkipSmallAndSkipTypes(t *testing.T) {
 
 	// Small body (<MinSize default 512) should not be compressed
 	app.GET("/small", func(c *zentrox.Context) {
-		c.SetHeader("Content-Type", "text/plain")
+		c.SetHeader(zentrox.HeaderContentType, "text/plain")
 		c.String(http.StatusOK, "tiny")
 	})
 
@@ -65,10 +65,10 @@ func TestGzip_SkipSmallAndSkipTypes(t *testing.T) {
 
 	for _, path := range []string{"/small", "/image"} {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
-		req.Header.Set("Accept-Encoding", "gzip")
+		req.Header.Set(zentrox.HeaderAcceptEncoding, "gzip")
 		w := httptest.NewRecorder()
 		app.ServeHTTP(w, req)
-		if enc := w.Header().Get("Content-Encoding"); enc != "" {
+		if enc := w.Header().Get(zentrox.HeaderContentEncoding); enc != "" {
 			t.Fatalf("%s: expected no gzip, got %q", path, enc)
 		}
 	}

@@ -31,6 +31,7 @@ type Context struct {
 	index   int
 	stack   []Handler
 	store   map[string]any
+	realIP  func(*http.Request) string
 
 	aborted bool
 	err     error
@@ -311,7 +312,7 @@ func parseHeaderTag(tag, fallback string) (name string, required bool) {
 
 // JSON sends a JSON response
 func (c *Context) JSON(code int, v any) {
-	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeJSONUTF8)
 	c.Writer.WriteHeader(code)
 
 	enc := json.NewEncoder(c.Writer)
@@ -319,13 +320,13 @@ func (c *Context) JSON(code int, v any) {
 
 	if err := enc.Encode(v); err != nil {
 		// Fallback to a minimal error envelope if marshaling fails
-		_, _ = c.Writer.Write([]byte(`{"code":500,"message":"json encode failed"}`))
+		_, _ = c.Writer.Write([]byte(`{"code":500,"message":"` + MsgJSONEncodeFailed + `"}`))
 	}
 }
 
 // String sends a plain text response
 func (c *Context) String(code int, format string, values ...any) {
-	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
 	c.Writer.WriteHeader(code)
 	if len(values) > 0 {
 		_, _ = fmt.Fprintf(c.Writer, format, values...)
@@ -336,14 +337,14 @@ func (c *Context) String(code int, format string, values ...any) {
 
 // HTML sends an HTML response
 func (c *Context) HTML(code int, html string) {
-	c.Writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeHTMLUTF8)
 	c.Writer.WriteHeader(code)
 	_, _ = c.Writer.Write([]byte(html))
 }
 
 // XML sends an XML response
 func (c *Context) XML(code int, v any) {
-	c.Writer.Header().Set("Content-Type", "application/xml; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeXMLUTF8)
 	c.Writer.WriteHeader(code)
 	b, err := xml.Marshal(v)
 	if err != nil {
@@ -356,7 +357,7 @@ func (c *Context) XML(code int, v any) {
 // Data sends raw bytes with custom content type
 func (c *Context) Data(code int, contentType string, b []byte) {
 	if contentType != "" {
-		c.Writer.Header().Set("Content-Type", contentType)
+		c.Writer.Header().Set(HeaderContentType, contentType)
 	}
 	c.Writer.WriteHeader(code)
 	_, _ = c.Writer.Write(b)
@@ -370,10 +371,10 @@ func (c *Context) SendAttachment(path, filename string) {
 	if filename == "" {
 		filename = filepath.Base(path)
 	}
-	c.Writer.Header().Set("Content-Disposition", "attachment; filename="+filename)
+	c.Writer.Header().Set(HeaderContentDisposition, "attachment; filename="+filename)
 	f, err := os.Open(path)
 	if err != nil {
-		c.String(http.StatusNotFound, "file not found")
+		c.String(http.StatusNotFound, MsgFileNotFound)
 		return
 	}
 	defer f.Close()
@@ -381,7 +382,7 @@ func (c *Context) SendAttachment(path, filename string) {
 	buf := make([]byte, 512)
 	n, _ := f.Read(buf)
 	ct := http.DetectContentType(buf[:n])
-	c.Writer.Header().Set("Content-Type", ct)
+	c.Writer.Header().Set(HeaderContentType, ct)
 	_, _ = f.Seek(0, 0)
 
 	c.Writer.WriteHeader(http.StatusOK)
@@ -389,18 +390,18 @@ func (c *Context) SendAttachment(path, filename string) {
 }
 
 func (c *Context) SendBytes(code int, b []byte) {
-	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
 	c.Writer.WriteHeader(code)
 	_, _ = c.Writer.Write(b)
 }
 
 func (c *Context) SendStatus(code int) {
-	c.Writer.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
 	c.Writer.WriteHeader(code)
 }
 
 func (c *Context) PushStream(fn func(w io.Writer, flush func())) {
-	c.Writer.Header().Set("Content-Type", "application/octet-stream")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeOctetStream)
 	c.Writer.WriteHeader(http.StatusOK)
 	flusher, _ := c.Writer.(http.Flusher)
 	flush := func() {
@@ -412,9 +413,9 @@ func (c *Context) PushStream(fn func(w io.Writer, flush func())) {
 }
 
 func (c *Context) PushSSE(fn func(event func(name, data string))) {
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeEventStream)
+	c.Writer.Header().Set(HeaderCacheControl, CacheControlNoCache)
+	c.Writer.Header().Set(HeaderConnection, ConnectionKeepAlive)
 	c.Writer.WriteHeader(http.StatusOK)
 
 	flusher, _ := c.Writer.(http.Flusher)
@@ -480,15 +481,18 @@ func (c *Context) RealIP() string {
 	if c.Request == nil {
 		return ""
 	}
+	if c.realIP != nil {
+		return c.realIP(c.Request)
+	}
 	r := c.Request
 	// X-Forwarded-For could be "client, proxy1, proxy2"
-	if v := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); v != "" {
+	if v := strings.TrimSpace(r.Header.Get(HeaderXForwardedFor)); v != "" {
 		if i := strings.IndexByte(v, ','); i >= 0 {
 			return strings.TrimSpace(v[:i])
 		}
 		return v
 	}
-	if v := strings.TrimSpace(r.Header.Get("X-Real-IP")); v != "" {
+	if v := strings.TrimSpace(r.Header.Get(HeaderXRealIP)); v != "" {
 		return v
 	}
 	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
@@ -621,7 +625,7 @@ func (c *Context) Accepts(candidates ...string) string {
 	if len(candidates) == 0 {
 		return ""
 	}
-	accept := c.GetHeader("Accept")
+	accept := c.GetHeader(HeaderAccept)
 	if strings.TrimSpace(accept) == "" {
 		return candidates[0]
 	}
@@ -716,7 +720,7 @@ func (c *Context) Negotiate(code int, candidates map[string]any) {
 	payload := candidates[ct]
 
 	switch ct {
-	case "application/json", "application/problem+json":
+	case ContentTypeJSON, ContentTypeProblemJSON:
 		c.JSON(code, payload)
 	case "text/plain":
 		if s, ok := payload.(string); ok {
@@ -734,7 +738,7 @@ func (c *Context) Negotiate(code int, candidates map[string]any) {
 		c.XML(code, payload)
 	default:
 		// Fallback to JSON if provided, else first candidate as text
-		if v, ok := candidates["application/json"]; ok {
+		if v, ok := candidates[ContentTypeJSON]; ok {
 			c.JSON(code, v)
 			return
 		}
@@ -802,7 +806,7 @@ func (c *Context) Problem(status int, typeURI, title, detail, instance string, e
 		Ext:      ext,
 	}
 	// Explicit content-type per RFC
-	c.Writer.Header().Set("Content-Type", "application/problem+json; charset=utf-8")
+	c.Writer.Header().Set(HeaderContentType, ContentTypeProblemJSONUTF8)
 	c.Writer.WriteHeader(status)
 	enc := json.NewEncoder(c.Writer)
 	enc.SetEscapeHTML(false)

@@ -41,7 +41,7 @@ func main() {
 		c.String(200, "secure ok")
 	}))
 
-	api := app.Scope("api", AuthGuard())
+	api := app.Scope("/api", AuthGuard())
 	{
 		api.GET("/users", func(ctx *zentrox.Context) {
 			ctx.String(200, "list ok")
