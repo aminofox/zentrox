@@ -26,6 +26,16 @@ func newAppCommon() *zentrox.App {
 	return app
 }
 
+func newAppHardened() *zentrox.App {
+	app := newAppCommon()
+	app.Plug(
+		middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()),
+		middleware.HTTPProtection(middleware.DefaultHTTPProtection()),
+		middleware.BodyLimit(middleware.DefaultBodyLimit()),
+	)
+	return app
+}
+
 func benchRPS(b *testing.B, app *zentrox.App, req *http.Request) {
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -70,6 +80,16 @@ func BenchmarkRPS_Static(b *testing.B) {
 	benchRPS(b, app, req)
 }
 
+func BenchmarkRPS_Static_Parallel(b *testing.B) {
+	app := newAppCommon()
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
+	benchRPSParallel(b, app, req)
+}
+
 // Bench: Param route (:id + wildcard)
 func BenchmarkRPS_Param(b *testing.B) {
 	app := newAppCommon()
@@ -102,5 +122,69 @@ func BenchmarkRPS_SmallJSON_Parallel(b *testing.B) {
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/json", nil)
+	benchRPSParallel(b, app, req)
+}
+
+func BenchmarkRPS_HardenedStatic(b *testing.B) {
+	app := newAppHardened()
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
+	benchRPS(b, app, req)
+}
+
+func BenchmarkRPS_HardenedStatic_Parallel(b *testing.B) {
+	app := newAppHardened()
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
+	benchRPSParallel(b, app, req)
+}
+
+func BenchmarkRPS_DefaultAPIHardening_Static(b *testing.B) {
+	app := newAppCommon()
+	app.Plug(middleware.DefaultAPIHardening()...)
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
+	benchRPS(b, app, req)
+}
+
+func BenchmarkRPS_DefaultAPIHardening_Static_Parallel(b *testing.B) {
+	app := newAppCommon()
+	app.Plug(middleware.DefaultAPIHardening()...)
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
+	benchRPSParallel(b, app, req)
+}
+
+func BenchmarkRPS_DefaultAPIHardeningFast_Static(b *testing.B) {
+	app := newAppCommon()
+	app.Plug(middleware.DefaultAPIHardeningFast()...)
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
+	benchRPS(b, app, req)
+}
+
+func BenchmarkRPS_DefaultAPIHardeningFast_Static_Parallel(b *testing.B) {
+	app := newAppCommon()
+	app.Plug(middleware.DefaultAPIHardeningFast()...)
+	app.GET("/hi", func(c *zentrox.Context) {
+		c.SendStatus(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/hi", nil)
 	benchRPSParallel(b, app, req)
 }

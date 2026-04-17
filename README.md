@@ -50,7 +50,7 @@ go get github.com/aminofox/zentrox
 - ✅ **Automatic middleware chaining** - No manual `c.Next()` needed in handlers
 - ✅ **Fast routing** - Compiled trie with path params and wildcards
 - ✅ **Built-in essentials** - CORS, JWT, Gzip, logging, error handling
-- ✅ **Swagger support** - Use swaggo with comment annotations for API documentation
+- ✅ **HTTP hardening middleware** - Security headers, request limits, method/URI guards
 - ✅ **Validation & binding** - Built-in request validation
 - ✅ **Context pooling** - Zero allocations for high performance
 
@@ -151,6 +151,12 @@ middleware.ErrorHandler(middleware.DefaultErrorHandler()) // Error handling
 middleware.RequestID(middleware.DefaultRequestID()) // Request ID propagation
 middleware.RateLimit(middleware.DefaultRateLimit()) // Token-bucket rate limit
 middleware.Timeout(2 * time.Second)             // Request context timeout
+middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()) // Baseline security headers
+middleware.HTTPProtection(middleware.DefaultHTTPProtection()) // Method + URI guards
+middleware.BodyLimit(middleware.DefaultBodyLimit()) // Request body size limit
+middleware.ConcurrencyLimit(middleware.DefaultConcurrencyLimit()) // In-flight request cap
+middleware.DefaultAPIHardening()... // Preset stack (use with app.Plug)
+middleware.DefaultAPIHardeningFast()... // Lower-overhead preset
 ```
 
 ## CORS (Simplified)
@@ -245,6 +251,102 @@ app.GET("/slow", func(c *zentrox.Context) {
 
 ---
 
+## Security Headers
+
+```go
+app.Plug(middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()))
+```
+
+Custom config:
+
+```go
+app.Plug(middleware.SecurityHeaders(middleware.SecurityHeadersConfig{
+    XContentTypeOptions: "nosniff",
+    XFrameOptions:       "SAMEORIGIN",
+    ReferrerPolicy:      "strict-origin",
+    Extra: map[string]string{
+        "Permissions-Policy": "geolocation=()",
+    },
+}))
+```
+
+## HTTP Protection
+
+```go
+app.Plug(middleware.HTTPProtection(middleware.HTTPProtectionConfig{
+    AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"},
+    MaxURLLength:   2048,
+}))
+```
+
+## Body Limit
+
+```go
+app.Plug(middleware.BodyLimit(middleware.BodyLimitConfig{
+    MaxBytes: 1 << 20, // 1 MiB
+}))
+```
+
+## Concurrency Limit
+
+```go
+app.Plug(middleware.ConcurrencyLimit(middleware.ConcurrencyLimitConfig{
+    MaxConcurrent: 512,
+    QueueTimeout:  50 * time.Millisecond,
+}))
+```
+
+Set `QueueTimeout: 0` to reject immediately when all slots are busy.
+
+## Default API Hardening (Preset)
+
+Use the optimized preset directly:
+
+```go
+app.Plug(middleware.DefaultAPIHardening()...)
+```
+
+Or tune defaults:
+
+```go
+cfg := middleware.DefaultAPIHardeningConfig()
+cfg.BodyLimit.MaxBytes = 2 << 20 // 2 MiB
+cfg.ConcurrencyLimit.MaxConcurrent = 1024
+cfg.Timeout = 1500 * time.Millisecond
+
+app.Plug(middleware.APIHardening(cfg)...)
+```
+
+## Default API Hardening Fast (Preset)
+
+Use this when you want lower middleware overhead and can skip request-id/timeout:
+
+```go
+app.Plug(middleware.DefaultAPIHardeningFast()...)
+```
+
+Tune fast preset:
+
+```go
+cfg := middleware.DefaultAPIHardeningFastConfig()
+cfg.ConcurrencyLimit.MaxConcurrent = 1536
+cfg.RateLimit.Rate = 50
+cfg.RateLimit.Burst = 100
+
+app.Plug(middleware.APIHardeningFast(cfg)...)
+```
+
+For API services, a practical default stack is: `RequestID + SecurityHeaders + HTTPProtection + BodyLimit + ConcurrencyLimit + RateLimit + Timeout`.
+
+Performance note: these hardening middleware precompute config and keep per-request work lightweight. You can measure impact with:
+
+```bash
+go test ./z_test -bench BenchmarkRPS_ -benchmem
+go test ./z_test -run '^$' -bench BenchmarkMiddlewareCost_ -benchmem
+```
+
+---
+
 ## Binding & Validation
 
 ```go
@@ -274,59 +376,6 @@ Supported validators:
 
 ---
 
-## Swagger/OpenAPI
-
-Zentrox uses [swaggo](https://github.com/swaggo/swag) for API documentation with comment annotations:
-
-### 1. Install swag CLI
-
-```bash
-go install github.com/swaggo/swag/cmd/swag@latest
-```
-
-### 2. Add annotations to your code
-
-```go
-package main
-
-import (
-    "github.com/aminofox/zentrox"
-    _ "yourapp/docs" // Import generated docs
-)
-
-// @title           My API
-// @version         1.0
-// @description     This is my API server
-// @host            localhost:8000
-// @BasePath        /api/v1
-
-func main() {
-    app := zentrox.NewApp()
-    
-    // Mount Swagger UI
-    app.ServeSwagger("/swagger")
-    
-    // @Summary      Get user by ID
-    // @Tags         users
-    // @Param        id   path      int  true  "User ID"
-    // @Success      200  {object}  User
-    // @Router       /users/{id} [get]
-    app.GET("/api/v1/users/:id", getUser)
-    
-    app.Run(":8000")
-}
-```
-
-### 3. Generate documentation
-
-```bash
-swag init
-```
-
-### 4. Access Swagger UI
-
-Visit `http://localhost:8000/swagger/index.html`
-
 For more examples, see `examples/` (including `examples/platform_middleware/`).
 
 ## Examples Matrix
@@ -339,7 +388,7 @@ For more examples, see `examples/` (including `examples/platform_middleware/`).
 - `examples/gzip/` - Compression behavior and skip-by-content-type usage
 - `examples/rendering/` - HTML/XML/file download/streaming/SSE responses
 - `examples/graceful/` - `Start` + graceful `Shutdown` with signals and health endpoints
-- `examples/platform_middleware/` - RequestID + RateLimit + Timeout middleware together
+- `examples/platform_middleware/` - `DefaultAPIHardening` preset with tuned RateLimit/Timeout
 
 ---
 
@@ -470,7 +519,7 @@ func main() {
 - **Easy Integration**: Custom logger and JWT support to fit your existing systems
 - **Faster routing**: Compiled trie-based router with ~2M rps
 - **Better defaults**: Security and performance out of the box
-- **Modern features**: Built-in Swagger (via swaggo), validation, automatic middleware chaining
+- **Modern features**: Validation, HTTP hardening middleware, automatic middleware chaining
 - **Production-ready**: Context pooling, panic recovery, zero allocations
 
 ---

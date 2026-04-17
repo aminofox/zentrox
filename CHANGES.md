@@ -20,6 +20,9 @@ This document summarizes the major simplifications made to make Zentrox easier t
 - **Scope OPTIONS consistency**
   - Auto-`OPTIONS` registration now behaves consistently between app-level routes and scoped routes.
 
+- **Documentation cleanup**
+  - Removed stale API documentation references from project docs.
+
 ### Improved
 
 - **Client IP trust model**
@@ -29,6 +32,22 @@ This document summarizes the major simplifications made to make Zentrox easier t
   - Reduced unnecessary body conversion in auto-bind path by switching to byte-reader based body restore.
 
 ### Added
+
+- **HTTP hardening middleware**
+  - `SecurityHeaders` middleware for baseline security headers.
+  - `HTTPProtection` middleware for method allow-listing and URI length checks.
+  - `BodyLimit` middleware for request body size limits.
+  - `ConcurrencyLimit` middleware to cap in-flight requests and reduce pile-up under burst traffic.
+
+- **Hardening preset**
+  - Added `DefaultAPIHardening()` and `APIHardening(config)` for one-line optimized hardening stack setup.
+  - Added `DefaultAPIHardeningConfig()` for safe defaults + selective override.
+  - Added `DefaultAPIHardeningFast()` and `APIHardeningFast(config)` for lower-overhead hardening preset.
+
+- **Benchmark coverage for hardening stack**
+  - Added hardened-stack RPS benchmark cases for single-thread and parallel runs.
+  - Added per-middleware cost benchmarks to measure overhead by layer.
+  - Added fast-preset benchmark cases for comparison.
 
 - **New middleware utilities**
   - `RequestID` middleware for request ID propagation and context storage.

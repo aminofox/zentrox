@@ -12,14 +12,10 @@ import (
 func main() {
 	app := zentrox.NewApp()
 
-	app.Plug(
-		middleware.RequestID(middleware.DefaultRequestID()),
-		middleware.RateLimit(middleware.RateLimitConfig{
-			Rate:  10,
-			Burst: 20,
-		}),
-		middleware.Timeout(200*time.Millisecond),
-	)
+	hardening := middleware.DefaultAPIHardeningConfig()
+	hardening.RateLimit = middleware.RateLimitConfig{Rate: 10, Burst: 20}
+	hardening.Timeout = 200 * time.Millisecond
+	app.Plug(middleware.APIHardening(hardening)...)
 
 	app.GET("/", func(c *zentrox.Context) {
 		c.JSON(http.StatusOK, map[string]any{
