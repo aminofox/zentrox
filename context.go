@@ -15,6 +15,7 @@ import (
 	"reflect"
 	"regexp"
 	"sort"
+
 	"strconv"
 	"strings"
 	"time"
@@ -605,12 +606,12 @@ func (c *Context) UploadedFile(field string, maxMemory int64) (multipart.File, *
 	return c.Request.FormFile(field)
 }
 
+var sanitizeFilenameRe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
 // sanitizeFilename strips unsupported characters from a file name.
 func sanitizeFilename(name string) string {
 	name = filepath.Base(name)
-	// Allow letters, digits, dot, underscore, hyphen
-	allow := regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-	name = allow.ReplaceAllString(name, "_")
+	name = sanitizeFilenameRe.ReplaceAllString(name, "_")
 	// Avoid empty name
 	if name == "" || name == "." || name == ".." {
 		name = "file"
