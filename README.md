@@ -380,13 +380,9 @@ For more examples, see `examples/` (including `examples/platform_middleware/`).
 
 ## Examples Matrix
 
-- `examples/minimal/` - Smallest setup, logger integration, basic JWT-protected route
-- `examples/basic/` - Core routing, lifecycle hooks, static files, upload helpers
+- `examples/minimal/` - Minimal setup: custom logger, JWT sign + protected route with claim validation
+- `examples/basic/` - Core routing, lifecycle hooks, static files, file upload
 - `examples/binding/` - JSON/form/query binding + validation
-- `examples/custom_middleware/` - How to write and chain custom middleware
-- `examples/jwt_custom/` - JWT with custom claim validation policy
-- `examples/gzip/` - Compression behavior and skip-by-content-type usage
-- `examples/rendering/` - HTML/XML/file download/streaming/SSE responses
 - `examples/graceful/` - `Start` + graceful `Shutdown` with signals and health endpoints
 - `examples/platform_middleware/` - `DefaultAPIHardening` preset with tuned RateLimit/Timeout
 
