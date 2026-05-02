@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 func Recovery() zentrox.Handler {

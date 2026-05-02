@@ -11,8 +11,8 @@ A minimal, fast HTTP framework for Go with simple, clean API.
 package main
 
 import (
-    "github.com/aminofox/zentrox"
-    "github.com/aminofox/zentrox/middleware"
+    "github.com/aminofox/zentrox/v2"
+    "github.com/aminofox/zentrox/v2/middleware"
 )
 
 func main() {
@@ -37,7 +37,7 @@ func main() {
 ## Installation
 
 ```bash
-go get github.com/aminofox/zentrox
+go get github.com/aminofox/zentrox/v2
 ```
 
 ---
@@ -437,8 +437,8 @@ Benchmarks on Apple M1 Pro:
 package main
 
 import (
-    "github.com/aminofox/zentrox"
-    "github.com/aminofox/zentrox/middleware"
+    "github.com/aminofox/zentrox/v2"
+    "github.com/aminofox/zentrox/v2/middleware"
     "time"
 )
 

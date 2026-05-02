@@ -1,4 +1,4 @@
-module github.com/aminofox/zentrox
+module github.com/aminofox/zentrox/v2
 
 go 1.24.0
 

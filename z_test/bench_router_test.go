@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 func benchmarkServe(b *testing.B, app *zentrox.App, path string, method string) {

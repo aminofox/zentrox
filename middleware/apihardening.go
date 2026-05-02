@@ -3,7 +3,7 @@ package middleware
 import (
 	"time"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 type APIHardeningConfig struct {

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 // GzipOptions defines tunables for the gzip middleware.

@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 type LogFunc func(method, path string, status int, duration time.Duration, err error)

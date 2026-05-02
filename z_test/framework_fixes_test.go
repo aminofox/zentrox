@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 func TestOnResponseCapturesFinalStatus(t *testing.T) {

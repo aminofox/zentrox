@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/aminofox/zentrox"
-	"github.com/aminofox/zentrox/middleware"
+	"github.com/aminofox/zentrox/v2"
+	"github.com/aminofox/zentrox/v2/middleware"
 )
 
 func BenchmarkGzip_BigJSON(b *testing.B) {
