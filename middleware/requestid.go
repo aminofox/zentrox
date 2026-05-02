@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 type RequestIDConfig struct {

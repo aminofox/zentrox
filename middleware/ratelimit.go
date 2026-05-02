@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 type RateLimitConfig struct {

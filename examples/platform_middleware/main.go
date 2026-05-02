@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aminofox/zentrox"
-	"github.com/aminofox/zentrox/middleware"
+	"github.com/aminofox/zentrox/v2"
+	"github.com/aminofox/zentrox/v2/middleware"
 )
 
 func main() {

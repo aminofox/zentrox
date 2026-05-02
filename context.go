@@ -20,8 +20,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aminofox/zentrox/binding"
-	"github.com/aminofox/zentrox/validation"
+	"github.com/aminofox/zentrox/v2/binding"
+	"github.com/aminofox/zentrox/v2/validation"
 )
 
 // Context carries request-scoped values and the middleware/handler chain.

@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 type TimeoutConfig struct {

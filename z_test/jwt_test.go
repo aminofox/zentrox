@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminofox/zentrox"
-	"github.com/aminofox/zentrox/middleware"
+	"github.com/aminofox/zentrox/v2"
+	"github.com/aminofox/zentrox/v2/middleware"
 )
 
 func TestJWT_MissingHeader(t *testing.T) {

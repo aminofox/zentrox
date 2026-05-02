@@ -1,6 +1,6 @@
 package middleware
 
-import "github.com/aminofox/zentrox"
+import "github.com/aminofox/zentrox/v2"
 
 // SecurityHeadersConfig controls baseline response hardening headers.
 // Set a field to "-" to explicitly disable that header.

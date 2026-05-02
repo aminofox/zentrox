@@ -4,8 +4,8 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/aminofox/zentrox"
-	"github.com/aminofox/zentrox/middleware"
+	"github.com/aminofox/zentrox/v2"
+	"github.com/aminofox/zentrox/v2/middleware"
 )
 
 type CreateUserDTO struct {

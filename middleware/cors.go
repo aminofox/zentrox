@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/aminofox/zentrox"
+	"github.com/aminofox/zentrox/v2"
 )
 
 type CORSConfig struct {

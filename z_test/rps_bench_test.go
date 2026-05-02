@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aminofox/zentrox"
-	"github.com/aminofox/zentrox/middleware"
+	"github.com/aminofox/zentrox/v2"
+	"github.com/aminofox/zentrox/v2/middleware"
 )
 
 // discardRW remove body to benchmark focusing on CPU processing of stack
