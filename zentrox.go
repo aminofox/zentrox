@@ -438,6 +438,9 @@ func cleanSlashPath(p string) string {
 	if !strings.HasPrefix(cleaned, "/") {
 		cleaned = "/" + cleaned
 	}
+	if len(cleaned) > 1 && (cleaned[1] == '/' || cleaned[1] == '\\') {
+		return "/"
+	}
 	return cleaned
 }
 
