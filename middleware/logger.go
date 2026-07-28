@@ -31,6 +31,10 @@ func LoggerWithFunc(fn LogFunc) zentrox.Handler {
 			}
 		}
 
-		fn(c.Request.Method, c.Request.URL.Path, status, time.Since(start), c.Error())
+		path := c.RoutePath()
+		if path == "" {
+			path = c.Request.URL.Path
+		}
+		fn(c.Request.Method, path, status, time.Since(start), c.Error())
 	}
 }

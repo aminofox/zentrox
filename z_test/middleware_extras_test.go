@@ -42,6 +42,24 @@ func TestRequestID_GenerateAndReuse(t *testing.T) {
 	}
 }
 
+func TestLoggerUsesRouteTemplate(t *testing.T) {
+	app := zentrox.NewApp()
+	var loggedPath string
+	app.Plug(middleware.LoggerWithFunc(func(method, path string, status int, duration time.Duration, err error) {
+		loggedPath = path
+	}))
+	app.GET("/users/:id", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/users/12345", nil))
+
+	if loggedPath != "/users/:id" {
+		t.Fatalf("logger path want route template, got %q", loggedPath)
+	}
+}
+
 func TestRateLimit_Basic(t *testing.T) {
 	app := zentrox.NewApp()
 	app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
@@ -65,6 +83,137 @@ func TestRateLimit_Basic(t *testing.T) {
 	app.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/rl", nil))
 	if w2.Code != http.StatusTooManyRequests {
 		t.Fatalf("second request want 429, got %d", w2.Code)
+	}
+}
+
+func TestRateLimit_MaxKeysRejectsNewKeysWhenFull(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
+		Rate:    100,
+		Burst:   100,
+		MaxKeys: 1,
+		KeyFunc: func(c *zentrox.Context) string {
+			return c.Query("key")
+		},
+	}))
+	app.GET("/rl", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	w1 := httptest.NewRecorder()
+	app.ServeHTTP(w1, httptest.NewRequest(http.MethodGet, "/rl?key=a", nil))
+	if w1.Code != http.StatusOK {
+		t.Fatalf("first key want 200, got %d", w1.Code)
+	}
+
+	w2 := httptest.NewRecorder()
+	app.ServeHTTP(w2, httptest.NewRequest(http.MethodGet, "/rl?key=b", nil))
+	if w2.Code != http.StatusTooManyRequests {
+		t.Fatalf("new key after cap want 429, got %d", w2.Code)
+	}
+}
+
+func TestCORS_ImplicitPreflightUsesGlobalMiddleware(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.CORS(middleware.DefaultCORS()))
+	app.GET("/cors", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodOptions, "/cors", nil)
+	req.Header.Set(zentrox.HeaderOrigin, "https://example.com")
+	req.Header.Set(zentrox.HeaderAccessControlRequestMethod, http.MethodGet)
+	req.Header.Set(zentrox.HeaderAccessControlRequestHeaders, "Authorization, X-Trace-ID")
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("preflight want 204, got %d", w.Code)
+	}
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowOrigin); got != "*" {
+		t.Fatalf("allow-origin want *, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowHeaders); got != "Authorization, X-Trace-ID" {
+		t.Fatalf("allow-headers should reflect requested headers for wildcard config, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderAllow); got != "GET, HEAD, OPTIONS" {
+		t.Fatalf("Allow header want %q, got %q", "GET, HEAD, OPTIONS", got)
+	}
+}
+
+func TestCORS_NoOriginDoesNotSetCORSHeaders(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.CORS(middleware.DefaultCORS()))
+	app.GET("/cors", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/cors", nil))
+
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowOrigin); got != "" {
+		t.Fatalf("non-CORS request should not get allow-origin, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderVary); got != "" {
+		t.Fatalf("non-CORS request should not get Vary, got %q", got)
+	}
+}
+
+func TestCORS_WildcardWithCredentialsDoesNotReflectOrigin(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.CORS(middleware.CORSConfig{
+		AllowOrigins:     []string{"*"},
+		AllowMethods:     []string{http.MethodGet},
+		AllowHeaders:     []string{"Content-Type"},
+		AllowCredentials: true,
+	}))
+	app.GET("/cors", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/cors", nil)
+	req.Header.Set(zentrox.HeaderOrigin, "https://example.com")
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowOrigin); got != "" {
+		t.Fatalf("credentialed wildcard should not reflect arbitrary origin, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowCredentials); got != "" {
+		t.Fatalf("allow-credentials should not be set for rejected origin, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderVary); !strings.Contains(got, zentrox.HeaderOrigin) {
+		t.Fatalf("Vary should include Origin, got %q", got)
+	}
+}
+
+func TestCORS_AllowOriginFuncWithCredentials(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.CORS(middleware.CORSConfig{
+		AllowOriginFunc: func(origin string) bool {
+			return strings.HasSuffix(origin, ".example.com")
+		},
+		AllowMethods:     []string{http.MethodGet},
+		AllowHeaders:     []string{"Content-Type"},
+		AllowCredentials: true,
+	}))
+	app.GET("/cors", func(c *zentrox.Context) {
+		c.String(http.StatusOK, "ok")
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/cors", nil)
+	req.Header.Set(zentrox.HeaderOrigin, "https://app.example.com")
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowOrigin); got != "https://app.example.com" {
+		t.Fatalf("origin func should reflect allowed origin, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderAccessControlAllowCredentials); got != "true" {
+		t.Fatalf("allow-credentials want true, got %q", got)
+	}
+	if got := w.Header().Get(zentrox.HeaderVary); !strings.Contains(got, zentrox.HeaderOrigin) {
+		t.Fatalf("Vary should include Origin, got %q", got)
 	}
 }
 

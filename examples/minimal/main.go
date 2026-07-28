@@ -1,8 +1,8 @@
 package main
 
 import (
-	"errors"
 	"log"
+	"os"
 	"time"
 
 	"github.com/aminofox/zentrox/v2"
@@ -11,7 +11,10 @@ import (
 
 func main() {
 	app := zentrox.NewApp()
-	secret := []byte("your-secret-key-here")
+	secret := []byte(os.Getenv("JWT_SECRET"))
+	if len(secret) == 0 {
+		log.Fatal("JWT_SECRET is required")
+	}
 
 	// Swap LoggerWithFunc with your own logger (zap, logrus, etc.)
 	app.Plug(
@@ -36,32 +39,20 @@ func main() {
 
 	// Issue a signed JWT — use the token in: Authorization: Bearer <token>
 	app.GET("/token", func(c *zentrox.Context) {
-		claims := map[string]any{
-			"sub":  "user123",
-			"role": "admin",
-			"iss":  "myapp",
-			"exp":  time.Now().Add(time.Hour).Unix(),
+		claims := &middleware.JWTClaims{
+			RegisteredClaims: middleware.RegisteredClaims{
+				Subject:   "user123",
+				ExpiresAt: time.Now().Add(1 * time.Hour).Unix(),
+			},
 		}
 		token, _ := middleware.SignHS256(claims, secret)
 		c.JSON(200, map[string]string{"token": token})
 	})
 
-	// Protected scope: validates exp, iss, and role
+	// Protected scope: validates the token signature and registered time claims.
 	api := app.Scope("/api", middleware.JWT(middleware.JWTConfig{
 		Secret:     secret,
 		ContextKey: "user",
-		ValidateFunc: func(claims map[string]any) error {
-			if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() > int64(exp) {
-				return errors.New("token expired")
-			}
-			if iss, _ := claims["iss"].(string); iss != "myapp" {
-				return errors.New("invalid issuer")
-			}
-			if role, _ := claims["role"].(string); role != "admin" {
-				return errors.New("admin role required")
-			}
-			return nil
-		},
 	}))
 
 	api.GET("/me", func(c *zentrox.Context) {

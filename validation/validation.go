@@ -7,7 +7,33 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 )
+
+// StructValidator is the validation engine used after request binding.
+// Implement this interface to plug in packages such as go-playground/validator.
+type StructValidator interface {
+	ValidateStruct(v any) error
+}
+
+// StructValidatorFunc adapts a function into a StructValidator.
+type StructValidatorFunc func(v any) error
+
+// ValidateStruct calls f(v).
+func (f StructValidatorFunc) ValidateStruct(v any) error {
+	return f(v)
+}
+
+type defaultValidator struct{}
+
+// DefaultValidator returns Zentrox's lightweight built-in validator.
+func DefaultValidator() StructValidator {
+	return defaultValidator{}
+}
+
+func (defaultValidator) ValidateStruct(v any) error {
+	return ValidateStruct(v)
+}
 
 // ValidateStruct supports `validate:"required,min=,max=,len="`
 // - numbers: min/max value
@@ -198,6 +224,7 @@ func checkLen(v reflect.Value, s string) error {
 
 // add near other helpers
 var emailRe = regexp.MustCompile(`^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$`)
+var regexCache sync.Map // map[string]*regexp.Regexp
 
 // checkEmail validates a basic email string with a pragmatic regex (not full RFC).
 func checkEmail(v reflect.Value) error {
@@ -276,12 +303,24 @@ func checkRegex(v reflect.Value, pattern string) error {
 	if v.Kind() != reflect.String {
 		return fmt.Errorf("must be a string")
 	}
-	re, err := regexp.Compile(pattern)
+	re, err := cachedRegex(pattern)
 	if err != nil {
-		return fmt.Errorf("invalid regex: %v", err)
+		return err
 	}
 	if !re.MatchString(v.String()) {
 		return fmt.Errorf("does not match pattern")
 	}
 	return nil
+}
+
+func cachedRegex(pattern string) (*regexp.Regexp, error) {
+	if re, ok := regexCache.Load(pattern); ok {
+		return re.(*regexp.Regexp), nil
+	}
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return nil, fmt.Errorf("invalid regex: %v", err)
+	}
+	actual, _ := regexCache.LoadOrStore(pattern, re)
+	return actual.(*regexp.Regexp), nil
 }

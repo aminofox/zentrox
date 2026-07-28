@@ -23,10 +23,49 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/aminofox/zentrox/v2/validation"
 )
 
 // Handler is the middleware/handler function type.
 type Handler func(*Context)
+
+// HandlerWithError is an opt-in handler shape for applications that prefer
+// returning business errors and letting middleware map them centrally.
+type HandlerWithError func(*Context) error
+
+// WrapError adapts a HandlerWithError to the standard Handler type.
+func WrapError(h HandlerWithError) Handler {
+	return func(c *Context) {
+		if err := h(c); err != nil {
+			c.SetError(err)
+		}
+	}
+}
+
+// WrapHTTP adapts a standard net/http handler to a Zentrox handler.
+func WrapHTTP(h http.Handler) Handler {
+	return func(c *Context) {
+		h.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+// WrapHTTPFunc adapts a standard net/http handler function to a Zentrox handler.
+func WrapHTTPFunc(h func(http.ResponseWriter, *http.Request)) Handler {
+	return WrapHTTP(http.HandlerFunc(h))
+}
+
+// SlashBehavior controls how request paths with repeated or trailing slashes are handled.
+type SlashBehavior int
+
+const (
+	// SlashNormalize keeps the historical behavior: repeated/trailing slashes are ignored by routing.
+	SlashNormalize SlashBehavior = iota
+	// SlashStrict rejects non-canonical slash forms with 404.
+	SlashStrict
+	// SlashRedirectClean redirects non-canonical slash forms to path.Clean(path).
+	SlashRedirectClean
+)
 
 type RouteInfo struct {
 	Method      string
@@ -39,6 +78,9 @@ type RouteInfo struct {
 
 // App is the main entrypoint of the framework.
 type App struct {
+	mu     sync.RWMutex
+	frozen bool
+
 	rt   *router
 	plug []Handler // global middlewares
 
@@ -66,6 +108,9 @@ type App struct {
 
 	trustedProxies []netip.Prefix
 	trustAllProxy  bool
+	slashBehavior  SlashBehavior
+	validator      validation.StructValidator
+	jsonCodec      JSONCodec
 }
 
 // ServerConfig controls the underlying http.Server configuration.
@@ -96,16 +141,101 @@ func NewApp() *App {
 	return &App{
 		rt:         newRouter(),
 		routeIndex: make(map[string]RouteInfo),
+		validator:  validation.DefaultValidator(),
+		jsonCodec:  DefaultJSONCodec(),
+	}
+}
+
+func (a *App) freeze() {
+	a.mu.RLock()
+	frozen := a.frozen
+	a.mu.RUnlock()
+	if frozen {
+		return
+	}
+
+	a.mu.Lock()
+	a.frozen = true
+	a.mu.Unlock()
+}
+
+func (a *App) assertMutableLocked(op string) {
+	if a.frozen {
+		panic("zentrox: cannot " + op + " after app has started serving")
 	}
 }
 
 // Plug registers global middlewares in declared order.
 func (a *App) Plug(m ...Handler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("register middleware")
 	a.plug = append(a.plug, m...)
+}
+
+// SetValidator replaces the validator used by Bind*Into helpers.
+// It must be called during startup before the app starts serving.
+func (a *App) SetValidator(v validation.StructValidator) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("set validator")
+	if v == nil {
+		v = validation.DefaultValidator()
+	}
+	a.validator = v
+	return a
+}
+
+// SetValidatorFunc replaces the validator used by Bind*Into helpers with a function.
+// For go-playground/validator, use: app.SetValidatorFunc(validator.New().Struct).
+func (a *App) SetValidatorFunc(fn func(any) error) *App {
+	if fn == nil {
+		return a.SetValidator(nil)
+	}
+	return a.SetValidator(validation.StructValidatorFunc(fn))
+}
+
+// SetJSONCodec replaces the JSON codec used by Context.JSON and BindJSONInto.
+// It must be called during startup before the app starts serving.
+func (a *App) SetJSONCodec(codec JSONCodec) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("set JSON codec")
+	if codec == nil {
+		codec = DefaultJSONCodec()
+	}
+	a.jsonCodec = codec
+	return a
+}
+
+// SetJSONCodecFuncs replaces the JSON codec with marshal/unmarshal functions.
+// For example: app.SetJSONCodecFuncs(json.Marshal, json.Unmarshal).
+func (a *App) SetJSONCodecFuncs(marshal func(any) ([]byte, error), unmarshal func([]byte, any) error) *App {
+	if marshal == nil || unmarshal == nil {
+		panic("SetJSONCodecFuncs: marshal and unmarshal are required")
+	}
+	return a.SetJSONCodec(jsonCodecFuncs{marshal: marshal, unmarshal: unmarshal})
 }
 
 // On registers a route with a custom HTTP method.
 func (a *App) on(method, path string, hs ...Handler) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.onLocked(method, path, hs...)
+}
+
+// Handle registers a route with a custom HTTP method.
+func (a *App) Handle(method, path string, handlers ...Handler) {
+	a.on(method, path, handlers...)
+}
+
+func (a *App) onLocked(method, path string, hs ...Handler) {
+	a.assertMutableLocked("register routes")
+	method = strings.ToUpper(strings.TrimSpace(method))
+	if method == "" {
+		panic("zentrox: HTTP method cannot be empty")
+	}
+	validateRoutePath(path)
 	if len(hs) == 0 {
 		panic("zentrox: On requires at least one handler")
 	}
@@ -113,15 +243,6 @@ func (a *App) on(method, path string, hs ...Handler) {
 	mws := hs[:len(hs)-1] // route middlewares
 	a.rt.add(method, path, append(a.plug, mws...), h)
 	a.trackRoute(method, path, h, append(a.plug, mws...))
-
-	// Auto-register OPTIONS handler if not already registered
-	if method != http.MethodOptions {
-		optHandler := func(c *Context) {
-			// Use SendStatus to ensure proper status code recording
-			c.SendStatus(http.StatusNoContent)
-		}
-		a.rt.add(http.MethodOptions, path, append(a.plug, mws...), optHandler)
-	}
 }
 
 // GET registers a route for GET requests
@@ -149,17 +270,57 @@ func (a *App) DELETE(path string, handlers ...Handler) {
 	a.on(http.MethodDelete, path, handlers...)
 }
 
+// OPTIONS registers a route for OPTIONS requests.
+func (a *App) OPTIONS(path string, handlers ...Handler) {
+	a.on(http.MethodOptions, path, handlers...)
+}
+
 // Scope creates a route group with a path prefix and optional middlewares.
 func (a *App) Scope(prefix string, mws ...Handler) *Scope {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("create scope")
+	prefix = normalizeScopePrefix(prefix)
 	return &Scope{app: a, prefix: prefix, plug: append([]Handler{}, mws...)}
+}
+
+func validateRoutePath(p string) {
+	if p == "" || p[0] != '/' {
+		panic("zentrox: route path must start with '/'")
+	}
+}
+
+func normalizeScopePrefix(prefix string) string {
+	validateRoutePath(prefix)
+	if len(prefix) > 1 {
+		prefix = strings.TrimRight(prefix, "/")
+	}
+	return prefix
+}
+
+func joinRoutePath(prefix, rel string) string {
+	if rel == "" {
+		rel = "/"
+	}
+	if rel[0] != '/' {
+		rel = "/" + rel
+	}
+	if prefix == "" || prefix == "/" {
+		return rel
+	}
+	return prefix + rel
 }
 
 // ServeHTTP uses a context pool and the precompiled router to handle the request.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	a.freeze()
+
 	// Acquire a pooled Context instance.
 	ctx := acquireContext(w, r)
 	defer releaseContext(ctx)
 	ctx.realIP = a.clientIP
+	ctx.validator = a.validator
+	ctx.jsonCodec = a.jsonCodec
 
 	// Wrap writer to capture status/bytes for onResponse.
 	rr := &respRecorder{ResponseWriter: w}
@@ -196,6 +357,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	if a.handleSlashBehavior(rr, r) {
+		return
+	}
+
 	// Try exact method match first.
 	entry := a.rt.match(r.Method, r.URL.Path, ctx.params)
 
@@ -203,6 +368,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if getEntry := a.rt.match(http.MethodGet, r.URL.Path, ctx.params); getEntry != nil {
 			hw := &headWriter{ResponseWriter: rr}
 			ctx.Writer = hw
+			ctx.route = getEntry.pattern
 			ctx.stack = getEntry.stack
 			ctx.Next()
 			return
@@ -215,7 +381,10 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			rr.Header().Set(HeaderAllow, strings.Join(allow, ", "))
 
 			if r.Method == http.MethodOptions {
-				rr.WriteHeader(http.StatusNoContent)
+				ctx.stack = append(append([]Handler{}, a.plug...), func(c *Context) {
+					c.SendStatus(http.StatusNoContent)
+				})
+				ctx.Next()
 				return
 			}
 
@@ -233,7 +402,43 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx.stack = entry.stack
+	ctx.route = entry.pattern
 	ctx.Next()
+}
+
+func (a *App) handleSlashBehavior(w http.ResponseWriter, r *http.Request) bool {
+	switch a.slashBehavior {
+	case SlashStrict:
+		if isNonCanonicalSlashPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return true
+		}
+	case SlashRedirectClean:
+		cleaned := cleanSlashPath(r.URL.Path)
+		if cleaned != r.URL.Path {
+			u := *r.URL
+			u.Path = cleaned
+			u.RawPath = ""
+			http.Redirect(w, r, u.RequestURI(), http.StatusPermanentRedirect)
+			return true
+		}
+	}
+	return false
+}
+
+func isNonCanonicalSlashPath(p string) bool {
+	return p == "" || strings.Contains(p, "//") || (len(p) > 1 && strings.HasSuffix(p, "/"))
+}
+
+func cleanSlashPath(p string) string {
+	if p == "" {
+		return "/"
+	}
+	cleaned := path.Clean(p)
+	if !strings.HasPrefix(cleaned, "/") {
+		cleaned = "/" + cleaned
+	}
+	return cleaned
 }
 
 // Run keeps backward compatibility: starts a blocking server with
@@ -246,6 +451,8 @@ func (a *App) Run(addr string) error {
 
 // buildServer constructs an *http.Server with defaults applied.
 func (a *App) buildServer(cfg *ServerConfig) *http.Server {
+	a.freeze()
+
 	// Defaults chosen for production-leaning safety.
 	c := ServerConfig{
 		Addr:              ":8000",
@@ -354,6 +561,9 @@ func (a *App) Health(livenessPath, readinessPath string, ready func() bool) {
 
 // SetOnRequest registers a hook called at the start of handling a request.
 func (a *App) SetOnRequest(fn func(*Context)) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure hooks")
 	a.onRequest = fn
 	return a
 }
@@ -361,12 +571,18 @@ func (a *App) SetOnRequest(fn func(*Context)) *App {
 // SetOnResponse registers a hook called after the request is handled.
 // Parameters: (ctx, statusCode, latency).
 func (a *App) SetOnResponse(fn func(*Context, int, time.Duration)) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure hooks")
 	a.onResponse = fn
 	return a
 }
 
 // SetNotFound sets a custom 404 handler hook.
 func (a *App) SetNotFound(h Handler) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure not found handler")
 	a.notFound = h
 	return a
 }
@@ -374,23 +590,34 @@ func (a *App) SetNotFound(h Handler) *App {
 // SetOnPanic registers a hook called when a panic occurs.
 // The panic value is forwarded and will be re-panicked after the hook returns.
 func (a *App) SetOnPanic(fn func(*Context, any)) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure hooks")
 	a.onPanic = fn
 	return a
 }
 
 // SetVersion configures an application version string injected per request.
 func (a *App) SetVersion(v string) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure version")
 	a.version = v
 	return a
 }
 
 // Version returns the configured application version.
 func (a *App) Version() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.version
 }
 
 // Enable/disable route printing when server starts
 func (a *App) SetPrintRoutes(v bool) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure route printing")
 	a.printRoutes = v
 	return a
 }
@@ -400,6 +627,9 @@ func (a *App) SetPrintRoutes(v bool) *App {
 // Accepts CIDR blocks (e.g. "10.0.0.0/8") and single IPs (e.g. "127.0.0.1").
 // Use "*" to trust all proxies.
 func (a *App) SetTrustedProxies(values ...string) *App {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure trusted proxies")
 	a.trustedProxies = nil
 	a.trustAllProxy = false
 
@@ -433,6 +663,19 @@ func (a *App) SetTrustedProxies(values ...string) *App {
 		a.trustedProxies = append(a.trustedProxies, p.Masked())
 	}
 
+	return a
+}
+
+// SetSlashBehavior configures repeated/trailing slash handling.
+// Configure this before the app starts serving.
+func (a *App) SetSlashBehavior(v SlashBehavior) *App {
+	if v < SlashNormalize || v > SlashRedirectClean {
+		panic("SetSlashBehavior: invalid slash behavior")
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("configure slash behavior")
+	a.slashBehavior = v
 	return a
 }
 
@@ -513,6 +756,8 @@ func (a *App) clientIP(r *http.Request) string {
 
 // Get route list (copy & sort for stability)
 func (a *App) ListRoutes() []RouteInfo {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	if len(a.routeIndex) == 0 {
 		return nil
 	}
@@ -530,6 +775,9 @@ func (a *App) ListRoutes() []RouteInfo {
 }
 
 func (a *App) updateRouteName(method, fullPath, handlerName string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.assertMutableLocked("update route metadata")
 	if handlerName == "" {
 		return
 	}
@@ -618,22 +866,23 @@ type Scope struct {
 }
 
 func (s *Scope) on(method, rel string, hs ...Handler) {
+	s.app.mu.Lock()
+	defer s.app.mu.Unlock()
+	s.app.assertMutableLocked("register routes")
 	if len(hs) == 0 {
 		panic("zentrox: Scope.On requires at least one handler")
 	}
-	fullPath := s.prefix + rel
+	fullPath := joinRoutePath(s.prefix, rel)
 	h := hs[len(hs)-1]
 	mws := hs[:len(hs)-1]
 	stack := append(s.app.plug, append(s.plug, mws...)...)
 	s.app.rt.add(method, fullPath, stack, h)
 	s.app.trackRoute(method, fullPath, h, stack)
+}
 
-	if method != http.MethodOptions {
-		optHandler := func(c *Context) {
-			c.SendStatus(http.StatusNoContent)
-		}
-		s.app.rt.add(http.MethodOptions, fullPath, stack, optHandler)
-	}
+// Handle registers a route with a custom HTTP method within this scope.
+func (s *Scope) Handle(method, path string, handlers ...Handler) {
+	s.on(method, path, handlers...)
 }
 
 // GET registers a route for GET requests
@@ -661,18 +910,30 @@ func (s *Scope) DELETE(path string, handlers ...Handler) {
 	s.on(http.MethodDelete, path, handlers...)
 }
 
+// OPTIONS registers a route for OPTIONS requests.
+func (s *Scope) OPTIONS(path string, handlers ...Handler) {
+	s.on(http.MethodOptions, path, handlers...)
+}
+
 // Use adds middleware to this scope
 func (s *Scope) Use(middlewares ...Handler) {
+	s.app.mu.Lock()
+	defer s.app.mu.Unlock()
+	s.app.assertMutableLocked("register scope middleware")
 	s.plug = append(s.plug, middlewares...)
 }
 
 // Scope creates a nested route group with a path prefix and optional middlewares.
 func (s *Scope) Scope(prefix string, mws ...Handler) *Scope {
+	s.app.mu.Lock()
+	defer s.app.mu.Unlock()
+	s.app.assertMutableLocked("create scope")
+	prefix = normalizeScopePrefix(prefix)
 	combinedMws := append([]Handler{}, s.plug...)
 	combinedMws = append(combinedMws, mws...)
 	return &Scope{
 		app:    s.app,
-		prefix: s.prefix + prefix,
+		prefix: joinRoutePath(s.prefix, prefix),
 		plug:   combinedMws,
 	}
 }
@@ -682,7 +943,7 @@ var ctxPool = sync.Pool{
 	New: func() any {
 		return &Context{
 			params: map[string]string{},
-			store:  map[string]any{},
+			store:  make(map[any]any),
 			index:  -1,
 		}
 	},
@@ -696,6 +957,10 @@ func acquireContext(w http.ResponseWriter, r *http.Request) *Context {
 	c.aborted = false
 	c.err = nil
 	c.realIP = nil
+	c.route = ""
+	c.responseCommitted = false
+	c.validator = nil
+	c.jsonCodec = nil
 	// params/store already exists; release will only delete the key
 	return c
 }
@@ -716,6 +981,10 @@ func releaseContext(c *Context) {
 	c.aborted = false
 	c.index = -1
 	c.realIP = nil
+	c.route = ""
+	c.responseCommitted = false
+	c.validator = nil
+	c.jsonCodec = nil
 
 	ctxPool.Put(c)
 }
@@ -729,6 +998,9 @@ type headWriter struct {
 }
 
 func (w *headWriter) WriteHeader(code int) {
+	if w.wroteHeader {
+		return
+	}
 	w.status = code
 	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(code)
@@ -740,6 +1012,39 @@ func (w *headWriter) Write(b []byte) (int, error) {
 	}
 	// Discard body for HEAD responses; pretend it was written successfully.
 	return len(b), nil
+}
+
+func (w *headWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (w *headWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("hijacker not supported")
+	}
+	return h.Hijack()
+}
+
+func (w *headWriter) Push(target string, opts *http.PushOptions) error {
+	p, ok := w.ResponseWriter.(http.Pusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
+	return p.Push(target, opts)
+}
+
+func (w *headWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
+func (w *headWriter) ReadFrom(r io.Reader) (n int64, err error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return io.Copy(io.Discard, r)
 }
 
 // respRecorder captures status code and bytes without changing behavior.
@@ -763,6 +1068,9 @@ func (w *respRecorder) Unwrap() http.ResponseWriter {
 }
 
 func (w *respRecorder) WriteHeader(code int) {
+	if w.status != 0 {
+		return
+	}
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
@@ -798,6 +1106,20 @@ func (w *respRecorder) Push(target string, opts *http.PushOptions) error {
 	return p.Push(target, opts)
 }
 
+func (w *respRecorder) ReadFrom(r io.Reader) (n int64, err error) {
+	if w.status == 0 {
+		w.status = http.StatusOK
+	}
+	rf, ok := w.ResponseWriter.(io.ReaderFrom)
+	if ok {
+		n, err = rf.ReadFrom(r)
+	} else {
+		n, err = io.Copy(w.ResponseWriter, r)
+	}
+	w.bytes += int(n)
+	return n, err
+}
+
 // StaticOptions controls behavior of Static(...)
 type StaticOptions struct {
 	// Directory on disk to serve from (absolute or relative to process cwd).
@@ -812,12 +1134,15 @@ type StaticOptions struct {
 	UseStrongETag bool
 	// Optional allow-list of file extensions (lowercase, with dot), e.g. []string{".css",".js",".png"}.
 	AllowedExt []string
+	// If true, allow symlinks under Dir. By default symlink targets must resolve inside Dir.
+	FollowSymlinks bool
 }
 
 // Static mounts a read-only file server under a prefix.
 // It sets ETag and Last-Modified, and handles If-None-Match / If-Modified-Since.
 // Security notes:
 // - Prevents path traversal ("..") by cleaning and validating joined path.
+// - Blocks symlink escapes outside Dir unless FollowSymlinks is true.
 // - Optional extension allow-list (if non-empty).
 func (a *App) Static(prefix string, opt StaticOptions) {
 	if prefix == "" || prefix[0] != '/' {
@@ -871,15 +1196,6 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 			return
 		}
 
-		// Extension allow-list check (if provided)
-		if len(allow) > 0 {
-			ext := strings.ToLower(filepath.Ext(target))
-			if _, ok := allow[ext]; !ok {
-				c.String(http.StatusForbidden, MsgForbidden)
-				return
-			}
-		}
-
 		// Stat file
 		fi, err := os.Stat(target)
 		if err != nil {
@@ -901,6 +1217,20 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 				}
 			} else {
 				c.String(http.StatusNotFound, MsgNotFound)
+				return
+			}
+		}
+
+		if !opt.FollowSymlinks && !isWithinBaseResolved(root, target) {
+			c.String(http.StatusForbidden, MsgForbidden)
+			return
+		}
+
+		// Extension allow-list check (if provided)
+		if len(allow) > 0 {
+			ext := strings.ToLower(filepath.Ext(target))
+			if _, ok := allow[ext]; !ok {
+				c.String(http.StatusForbidden, MsgForbidden)
 				return
 			}
 		}
@@ -965,25 +1295,47 @@ func (a *App) Static(prefix string, opt StaticOptions) {
 		defer f.Close()
 
 		c.Writer.WriteHeader(http.StatusOK)
-		_, _ = io.Copy(c.Writer, f)
+		if _, err := io.Copy(c.Writer, f); err != nil {
+			c.SetError(err)
+		}
 	}
 
-	a.GET(pat, h)
-	a.GET(rootPath, h)
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.onLocked(http.MethodGet, pat, h)
+	a.onLocked(http.MethodGet, rootPath, h)
 	// Reuse GET handler for HEAD (HEAD auto fallback also exists, but register explicit)
-	a.on(http.MethodHead, pat, h)
-	a.on(http.MethodHead, rootPath, h)
+	a.onLocked(http.MethodHead, pat, h)
+	a.onLocked(http.MethodHead, rootPath, h)
 }
 
 // isWithinBase ensures child is inside base to prevent path traversal.
 func isWithinBase(base, child string) bool {
-	b, _ := filepath.Abs(base)
-	c, _ := filepath.Abs(child)
+	b, err := filepath.Abs(base)
+	if err != nil {
+		return false
+	}
+	c, err := filepath.Abs(child)
+	if err != nil {
+		return false
+	}
 	rel, err := filepath.Rel(b, c)
 	if err != nil {
 		return false
 	}
-	return !strings.HasPrefix(rel, "..")
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
+}
+
+func isWithinBaseResolved(base, child string) bool {
+	b, err := filepath.EvalSymlinks(base)
+	if err != nil {
+		return false
+	}
+	c, err := filepath.EvalSymlinks(child)
+	if err != nil {
+		return false
+	}
+	return isWithinBase(b, c)
 }
 
 // sha1File returns the SHA1 content hash (used for strong ETag).

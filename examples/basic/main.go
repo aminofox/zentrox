@@ -39,7 +39,7 @@ func main() {
 		c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
-	app.GET(":id", func(c *zentrox.Context) {
+	app.GET("/:id", func(c *zentrox.Context) {
 		txt := handleLogic(c, c.Param("id"), "req-123")
 		c.String(http.StatusOK, "%s", txt)
 	})
