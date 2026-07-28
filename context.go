@@ -1,11 +1,16 @@
 package zentrox
 
 import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/xml"
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net"
 	"net/http"
@@ -31,15 +36,90 @@ type Context struct {
 	params  map[string]string
 	index   int
 	stack   []Handler
-	store   map[string]any
+	store   map[any]any
 	realIP  func(*http.Request) string
+	route   string
 
 	aborted bool
 	err     error
+
+	responseCommitted bool
+	validator         validation.StructValidator
+	jsonCodec         JSONCodec
+}
+
+// ErrResponseCommitted is returned by response helpers when headers were already written.
+var ErrResponseCommitted = errors.New("response already committed")
+
+// JSONCodec serializes and deserializes JSON payloads for Context.JSON and BindJSONInto.
+type JSONCodec interface {
+	Marshal(v any) ([]byte, error)
+	Unmarshal(data []byte, v any) error
+}
+
+type defaultJSONCodec struct{}
+
+// DefaultJSONCodec returns Zentrox's encoding/json based codec.
+func DefaultJSONCodec() JSONCodec {
+	return defaultJSONCodec{}
+}
+
+func (defaultJSONCodec) Marshal(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (defaultJSONCodec) Unmarshal(data []byte, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if err := dec.Decode(v); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values not allowed")
+		}
+		return err
+	}
+	return nil
+}
+
+type jsonCodecFuncs struct {
+	marshal   func(any) ([]byte, error)
+	unmarshal func([]byte, any) error
+}
+
+func (f jsonCodecFuncs) Marshal(v any) ([]byte, error) {
+	return f.marshal(v)
+}
+
+func (f jsonCodecFuncs) Unmarshal(data []byte, v any) error {
+	return f.unmarshal(data, v)
+}
+
+// ResponseCommitted reports whether the response status has already been written.
+func (c *Context) ResponseCommitted() bool {
+	if c.responseCommitted {
+		return true
+	}
+	rw, ok := c.Writer.(interface{ Status() int })
+	return ok && rw.Status() != 0
+}
+
+func (c *Context) markResponseCommitted() {
+	c.responseCommitted = true
 }
 
 // Next executes the next handler in the middleware chain
 func (c *Context) Next() {
+	if c.index >= len(c.stack) {
+		return
+	}
 	c.index++
 	for c.index < len(c.stack) {
 		if c.aborted {
@@ -61,10 +141,11 @@ func (c *Context) Aborted() bool {
 }
 
 // Fail sends a standardized HTTPError JSON and stops the chain.
-func (c *Context) Fail(code int, message string, detail ...any) {
+func (c *Context) Fail(code int, message string, detail ...any) error {
 	c.err = NewHTTPError(code, message, detail...)
-	c.JSON(code, c.err)
+	err := c.JSON(code, c.err)
 	c.Abort()
+	return err
 }
 
 // Error returns the last recorded error, if any.
@@ -101,15 +182,51 @@ func (c *Context) GetHeader(key string) string {
 	return c.Request.Header.Get(key)
 }
 
+// RoutePath returns the matched route template, such as "/users/:id".
+// It is empty when no route matched.
+func (c *Context) RoutePath() string {
+	return c.route
+}
+
 // Set stores an arbitrary value for the lifetime of the request.
-func (c *Context) Set(key string, v any) {
+func (c *Context) Set(key any, v any) {
+	if c.store == nil {
+		c.store = make(map[any]any)
+	}
 	c.store[key] = v
 }
 
 // Get retrieves a value previously stored with Set.
-func (c *Context) Get(key string) (any, bool) {
+func (c *Context) Get(key any) (any, bool) {
+	if c.store == nil {
+		return nil, false
+	}
 	v, ok := c.store[key]
 	return v, ok
+}
+
+// Copy returns a shallow copy of the Context that is safe to use outside the request scope.
+// It copies the store, Request, and params, but does NOT copy the ResponseWriter or middleware stack.
+// Use this if you need to pass Context data to a background goroutine.
+func (c *Context) Copy() *Context {
+	var req *http.Request
+	if c.Request != nil {
+		req = c.Request.Clone(context.Background())
+	}
+	cp := &Context{
+		Request: req,
+		params:  make(map[string]string, len(c.params)),
+		store:   make(map[any]any, len(c.store)),
+		realIP:  c.realIP,
+		route:   c.route,
+	}
+	for k, v := range c.params {
+		cp.params[k] = v
+	}
+	for k, v := range c.store {
+		cp.store[k] = v
+	}
+	return cp
 }
 
 // Binding & Validation
@@ -118,15 +235,23 @@ func (c *Context) BindInto(dst any) error {
 	if err := binding.Bind(c.Request, dst); err != nil {
 		return err
 	}
-	return validation.ValidateStruct(dst)
+	return c.validateStruct(dst)
 }
 
 // BindJSONInto binds JSON into dst and validates tags.
 func (c *Context) BindJSONInto(dst any) error {
-	if err := binding.JSON.Bind(c.Request, dst); err != nil {
+	if err := c.bindJSONInto(dst); err != nil {
 		return err
 	}
-	return validation.ValidateStruct(dst)
+	return c.validateStruct(dst)
+}
+
+// BindStrictJSONInto binds JSON into dst, rejects unknown fields and extra JSON documents, then validates tags.
+func (c *Context) BindStrictJSONInto(dst any) error {
+	if err := binding.StrictJSON.Bind(c.Request, dst); err != nil {
+		return err
+	}
+	return c.validateStruct(dst)
 }
 
 // BindFormInto binds form data into dst and validates tags.
@@ -134,7 +259,7 @@ func (c *Context) BindFormInto(dst any) error {
 	if err := binding.Form.Bind(c.Request, dst); err != nil {
 		return err
 	}
-	return validation.ValidateStruct(dst)
+	return c.validateStruct(dst)
 }
 
 // BindQueryInto binds query params into dst and validates tags.
@@ -142,7 +267,29 @@ func (c *Context) BindQueryInto(dst any) error {
 	if err := binding.Query.Bind(c.Request, dst); err != nil {
 		return err
 	}
+	return c.validateStruct(dst)
+}
+
+func (c *Context) validateStruct(dst any) error {
+	if c.validator != nil {
+		return c.validator.ValidateStruct(dst)
+	}
 	return validation.ValidateStruct(dst)
+}
+
+func (c *Context) bindJSONInto(dst any) error {
+	if c.jsonCodec == nil {
+		return binding.JSON.Bind(c.Request, dst)
+	}
+	if c.Request.Body == nil {
+		return errors.New("empty body")
+	}
+	defer c.Request.Body.Close()
+	b, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return err
+	}
+	return c.jsonCodec.Unmarshal(b, dst)
 }
 
 // BindHeaderInto maps request headers into a struct.
@@ -312,122 +459,213 @@ func parseHeaderTag(tag, fallback string) (name string, required bool) {
 }
 
 // JSON sends a JSON response
-func (c *Context) JSON(code int, v any) {
-	c.Writer.Header().Set(HeaderContentType, ContentTypeJSONUTF8)
-	c.Writer.WriteHeader(code)
-
-	enc := json.NewEncoder(c.Writer)
-	enc.SetEscapeHTML(false) // do not escape < > & by default; safer for API payloads
-
-	if err := enc.Encode(v); err != nil {
-		// Fallback to a minimal error envelope if marshaling fails
-		_, _ = c.Writer.Write([]byte(`{"code":500,"message":"` + MsgJSONEncodeFailed + `"}`))
+func (c *Context) JSON(code int, v any) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
 	}
+	codec := c.jsonCodec
+	if codec == nil {
+		codec = DefaultJSONCodec()
+	}
+	b, err := codec.Marshal(v)
+	if err != nil {
+		return err
+	}
+	c.Writer.Header().Set(HeaderContentType, ContentTypeJSONUTF8)
+	c.markResponseCommitted()
+	c.Writer.WriteHeader(code)
+	_, err = c.Writer.Write(b)
+	return err
 }
 
 // String sends a plain text response
-func (c *Context) String(code int, format string, values ...any) {
+func (c *Context) String(code int, format string, values ...any) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	if len(values) > 0 {
-		_, _ = fmt.Fprintf(c.Writer, format, values...)
-	} else {
-		_, _ = c.Writer.Write([]byte(format))
+		_, err := fmt.Fprintf(c.Writer, format, values...)
+		return err
 	}
+	_, err := c.Writer.Write([]byte(format))
+	return err
 }
 
 // HTML sends an HTML response
-func (c *Context) HTML(code int, html string) {
+func (c *Context) HTML(code int, html string) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeHTMLUTF8)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
-	_, _ = c.Writer.Write([]byte(html))
+	_, err := c.Writer.Write([]byte(html))
+	return err
 }
 
 // XML sends an XML response
-func (c *Context) XML(code int, v any) {
+func (c *Context) XML(code int, v any) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeXMLUTF8)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	b, err := xml.Marshal(v)
 	if err != nil {
 		_, _ = c.Writer.Write([]byte("<error>xml marshal failed</error>"))
-		return
+		return err
 	}
-	_, _ = c.Writer.Write(b)
+	_, err = c.Writer.Write(b)
+	return err
 }
 
 // Data sends raw bytes with custom content type
-func (c *Context) Data(code int, contentType string, b []byte) {
+func (c *Context) Data(code int, contentType string, b []byte) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	if contentType != "" {
 		c.Writer.Header().Set(HeaderContentType, contentType)
 	}
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
-	_, _ = c.Writer.Write(b)
+	_, err := c.Writer.Write(b)
+	return err
 }
 
-func (c *Context) Download(filepath string, filename string) {
+func (c *Context) Download(filepath string, filename string) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
+	if filename != "" {
+		c.Writer.Header().Set(HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	}
+	c.markResponseCommitted()
 	http.ServeFile(c.Writer, c.Request, filepath)
+	return nil
 }
 
-func (c *Context) SendAttachment(path, filename string) {
+func (c *Context) SendAttachment(path, filename string) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	if filename == "" {
 		filename = filepath.Base(path)
 	}
-	c.Writer.Header().Set(HeaderContentDisposition, "attachment; filename="+filename)
+	c.Writer.Header().Set(HeaderContentDisposition, mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	f, err := os.Open(path)
 	if err != nil {
-		c.String(http.StatusNotFound, MsgFileNotFound)
-		return
+		_ = c.String(http.StatusNotFound, MsgFileNotFound)
+		return err
 	}
 	defer f.Close()
 
 	buf := make([]byte, 512)
-	n, _ := f.Read(buf)
+	n, err := f.Read(buf)
+	if err != nil && err != io.EOF {
+		return err
+	}
 	ct := http.DetectContentType(buf[:n])
 	c.Writer.Header().Set(HeaderContentType, ct)
-	_, _ = f.Seek(0, 0)
+	if _, err := f.Seek(0, 0); err != nil {
+		return err
+	}
 
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(c.Writer, f)
+	_, err = io.Copy(c.Writer, f)
+	return err
 }
 
-func (c *Context) SendBytes(code int, b []byte) {
+func (c *Context) SendBytes(code int, b []byte) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
-	_, _ = c.Writer.Write(b)
+	_, err := c.Writer.Write(b)
+	return err
 }
 
-func (c *Context) SendStatus(code int) {
+func (c *Context) SendStatus(code int) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
+	return nil
 }
 
-func (c *Context) PushStream(fn func(w io.Writer, flush func())) {
+func (c *Context) PushStream(fn func(w io.Writer, flush func())) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeOctetStream)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(http.StatusOK)
-	flusher, _ := c.Writer.(http.Flusher)
 	flush := func() {
-		if flusher != nil {
-			flusher.Flush()
-		}
+		flusher.Flush()
 	}
 	fn(c.Writer, flush)
+	return nil
 }
 
-func (c *Context) PushSSE(fn func(event func(name, data string))) {
+func (c *Context) PushSSE(fn func(event func(name, data string))) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
+	flusher, ok := c.Writer.(http.Flusher)
+	if !ok {
+		return http.ErrNotSupported
+	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeEventStream)
 	c.Writer.Header().Set(HeaderCacheControl, CacheControlNoCache)
-	c.Writer.Header().Set(HeaderConnection, ConnectionKeepAlive)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(http.StatusOK)
 
-	flusher, _ := c.Writer.(http.Flusher)
+	var firstErr error
 	event := func(name, data string) {
-		_, _ = io.WriteString(c.Writer, "event: "+name+"\n")
-		_, _ = io.WriteString(c.Writer, "data: "+data+"\n\n")
-		if flusher != nil {
-			flusher.Flush()
+		if firstErr != nil {
+			return
 		}
+		name = sanitizeSSEEventName(name)
+		if _, firstErr = io.WriteString(c.Writer, "event: "+name+"\n"); firstErr != nil {
+			return
+		}
+		data = normalizeSSEData(data)
+		for _, line := range strings.Split(data, "\n") {
+			if _, firstErr = io.WriteString(c.Writer, "data: "+line+"\n"); firstErr != nil {
+				return
+			}
+		}
+		_, firstErr = io.WriteString(c.Writer, "\n")
+		if firstErr != nil {
+			return
+		}
+		flusher.Flush()
 	}
 	fn(event)
+	return firstErr
+}
+
+func sanitizeSSEEventName(name string) string {
+	name = strings.ReplaceAll(name, "\r", "")
+	return strings.ReplaceAll(name, "\n", "")
+}
+
+func normalizeSSEData(data string) string {
+	data = strings.ReplaceAll(data, "\r\n", "\n")
+	return strings.ReplaceAll(data, "\r", "\n")
 }
 
 // RequestID returns the request ID if a RequestID middleware has stored it.
@@ -541,7 +779,7 @@ func (c *Context) SaveUploadedFile(field, dstDir string, opt UploadOptions) (str
 	if opt.GenerateUniqueName {
 		ext := strings.ToLower(filepath.Ext(name))
 		base := strings.TrimSuffix(name, ext)
-		name = base + "-" + time.Now().UTC().Format("20060102T150405") + ext
+		name = base + "-" + time.Now().UTC().Format("20060102T150405") + "-" + randomHex(4) + ext
 	}
 	if name == "" {
 		return "", errors.New("upload: empty filename")
@@ -562,9 +800,14 @@ func (c *Context) SaveUploadedFile(field, dstDir string, opt UploadOptions) (str
 		}
 	}
 
+	dstRoot, err := filepath.Abs(dstDir)
+	if err != nil {
+		return "", err
+	}
+
 	// Prevent path traversal
-	target := filepath.Join(dstDir, filepath.Base(name))
-	if ok := isWithinBase(dstDir, target); !ok { // reuse helper from zentrox.go
+	target := filepath.Join(dstRoot, filepath.Base(name))
+	if ok := isWithinBase(dstRoot, target); !ok { // reuse helper from zentrox.go
 		return "", errors.New("upload: invalid path")
 	}
 
@@ -572,16 +815,38 @@ func (c *Context) SaveUploadedFile(field, dstDir string, opt UploadOptions) (str
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return "", err
 	}
+	realDstRoot, err := filepath.EvalSymlinks(dstRoot)
+	if err != nil {
+		return "", err
+	}
+	realTargetDir, err := filepath.EvalSymlinks(filepath.Dir(target))
+	if err != nil {
+		return "", err
+	}
+	if !isWithinBase(realDstRoot, realTargetDir) {
+		return "", errors.New("upload: invalid destination")
+	}
 
 	// Deny overwrite unless allowed
-	if !opt.Overwrite {
-		if _, err := os.Stat(target); err == nil {
+	if fi, err := os.Lstat(target); err == nil {
+		if fi.Mode()&os.ModeSymlink != 0 {
+			return "", errors.New("upload: refusing to overwrite symlink")
+		}
+		if fi.IsDir() {
+			return "", errors.New("upload: target is a directory")
+		}
+		if !opt.Overwrite {
 			return "", errors.New("upload: file exists")
 		}
+		if err := os.Remove(target); err != nil {
+			return "", err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", err
 	}
 
 	// Copy stream to disk (0600 for privacy by default)
-	dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	dst, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}
@@ -592,6 +857,17 @@ func (c *Context) SaveUploadedFile(field, dstDir string, opt UploadOptions) (str
 	}
 
 	return target, nil
+}
+
+func randomHex(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		return "random"
+	}
+	return hex.EncodeToString(b)
 }
 
 // UploadedFile returns the multipart file and header for advanced use.
@@ -794,7 +1070,10 @@ func (p Problem) MarshalJSON() ([]byte, error) {
 
 // Problem writes an application/problem+json response using the provided fields.
 // The Content-Type is set to "application/problem+json".
-func (c *Context) Problem(status int, typeURI, title, detail, instance string, ext map[string]any) {
+func (c *Context) Problem(status int, typeURI, title, detail, instance string, ext map[string]any) error {
+	if c.ResponseCommitted() {
+		return ErrResponseCommitted
+	}
 	if ext == nil {
 		ext = map[string]any{}
 	}
@@ -808,15 +1087,18 @@ func (c *Context) Problem(status int, typeURI, title, detail, instance string, e
 	}
 	// Explicit content-type per RFC
 	c.Writer.Header().Set(HeaderContentType, ContentTypeProblemJSONUTF8)
+	c.markResponseCommitted()
 	c.Writer.WriteHeader(status)
 	enc := json.NewEncoder(c.Writer)
 	enc.SetEscapeHTML(false)
 	if err := enc.Encode(p); err != nil {
 		_, _ = c.Writer.Write([]byte(`{"type":"about:blank","title":"Internal Server Error","status":500}`))
+		return err
 	}
+	return nil
 }
 
 // Problemf is a convenience helper to write a simple problem without instance/ext.
-func (c *Context) Problemf(status int, title string, detail string) {
-	c.Problem(status, "about:blank", title, detail, "", nil)
+func (c *Context) Problemf(status int, title string, detail string) error {
+	return c.Problem(status, "about:blank", title, detail, "", nil)
 }

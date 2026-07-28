@@ -94,3 +94,25 @@ func TestRouter_AutoHEAD(t *testing.T) {
 		t.Fatalf("HEAD should have empty body, got %d bytes", l)
 	}
 }
+
+func TestRouter_InvalidEmptyParamAndWildcardPanic(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "empty param", path: "/users/:/profile"},
+		{name: "empty wildcard", path: "/files/*"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				if recover() == nil {
+					t.Fatalf("registering %q should panic", tt.path)
+				}
+			}()
+			app := newApp()
+			app.GET(tt.path, func(c *zentrox.Context) {})
+		})
+	}
+}

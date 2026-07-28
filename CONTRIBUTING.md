@@ -47,3 +47,12 @@ git checkout main && git pull
 # Create branch in correct format
 git checkout -b feat/update-context
 git push -u origin feat/update-context
+```
+
+## Support Policy & API Stability
+
+Zentrox takes API stability seriously. 
+- **Major Versions**: Breaking changes (e.g., changes to function signatures like `Context`, `Handler`) will only occur in major version bumps (e.g., v2 to v3).
+- **Minor Versions**: New features and non-breaking additions.
+- **Deprecation Lifecycle**: If an API is to be removed, it will first be marked `// Deprecated:` in a minor release. A migration guide will be provided in the release notes. The API will be retained for at least 2 minor releases before being removed in the next major version.
+- **Security Updates**: Security patches will be backported to the current major version and the immediately preceding major version for at least 12 months after a new major release.

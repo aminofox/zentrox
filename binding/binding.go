@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -19,6 +20,7 @@ type Binder interface {
 }
 
 type jsonBinder struct{}
+type strictJSONBinder struct{}
 type formBinder struct{}
 type queryBinder struct{}
 
@@ -30,13 +32,18 @@ const (
 )
 
 var (
-	JSON  = jsonBinder{}
-	Form  = formBinder{}
-	Query = queryBinder{}
+	JSON       = jsonBinder{}
+	StrictJSON = strictJSONBinder{}
+	Form       = formBinder{}
+	Query      = queryBinder{}
 )
 
 func (jsonBinder) Name() string {
 	return "json"
+}
+
+func (strictJSONBinder) Name() string {
+	return "json-strict"
 }
 
 func (formBinder) Name() string {
@@ -48,12 +55,108 @@ func (queryBinder) Name() string {
 }
 
 func (jsonBinder) Bind(r *http.Request, dst any) error {
+	return bindJSON(r, dst, false)
+}
+
+func (strictJSONBinder) Bind(r *http.Request, dst any) error {
+	return bindJSON(r, dst, true)
+}
+
+func bindJSON(r *http.Request, dst any, strict bool) error {
 	if r.Body == nil {
 		return errors.New("empty body")
 	}
 	defer r.Body.Close()
-	return json.NewDecoder(r.Body).Decode(dst)
+	body := io.Reader(r.Body)
+	if strict {
+		b, err := io.ReadAll(r.Body)
+		if err != nil {
+			return err
+		}
+		if err := rejectDuplicateJSONKeys(b); err != nil {
+			return err
+		}
+		body = bytes.NewReader(b)
+	}
+
+	dec := json.NewDecoder(body)
+	if strict {
+		dec.DisallowUnknownFields()
+	}
+	if err := dec.Decode(dst); err != nil {
+		return err
+	}
+	var extra any
+	if err := dec.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return errors.New("multiple JSON values not allowed")
+		}
+		return err
+	}
+	return nil
 }
+
+func rejectDuplicateJSONKeys(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	return rejectDuplicateJSONValue(dec)
+}
+
+func rejectDuplicateJSONValue(dec *json.Decoder) error {
+	tok, err := dec.Token()
+	if err != nil {
+		return err
+	}
+
+	delim, ok := tok.(json.Delim)
+	if !ok {
+		return nil
+	}
+
+	switch delim {
+	case '{':
+		seen := make(map[string]struct{})
+		for dec.More() {
+			keyTok, err := dec.Token()
+			if err != nil {
+				return err
+			}
+			key, ok := keyTok.(string)
+			if !ok {
+				return errors.New("invalid JSON object key")
+			}
+			if _, exists := seen[key]; exists {
+				return fmt.Errorf("duplicate JSON object key %q", key)
+			}
+			seen[key] = struct{}{}
+			if err := rejectDuplicateJSONValue(dec); err != nil {
+				return err
+			}
+		}
+		end, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if end != json.Delim('}') {
+			return errors.New("invalid JSON object")
+		}
+	case '[':
+		for dec.More() {
+			if err := rejectDuplicateJSONValue(dec); err != nil {
+				return err
+			}
+		}
+		end, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if end != json.Delim(']') {
+			return errors.New("invalid JSON array")
+		}
+	}
+
+	return nil
+}
+
 func (formBinder) Bind(r *http.Request, dst any) error {
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
 		if err := r.ParseForm(); err != nil {

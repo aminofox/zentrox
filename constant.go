@@ -7,9 +7,7 @@ const (
 	TraceParent = "traceparent"
 	TraceID     = "trace_id"
 	SpanID      = "span_id"
-)
 
-const (
 	HeaderAccept              = "Accept"
 	HeaderAllow               = "Allow"
 	HeaderAuthorization       = "Authorization"
@@ -30,19 +28,17 @@ const (
 	HeaderXContentTypeOptions = "X-Content-Type-Options"
 	HeaderXFrameOptions       = "X-Frame-Options"
 	HeaderReferrerPolicy      = "Referrer-Policy"
-)
 
-const (
 	HeaderAccessControlAllowOrigin      = "Access-Control-Allow-Origin"
 	HeaderAccessControlAllowMethods     = "Access-Control-Allow-Methods"
 	HeaderAccessControlAllowHeaders     = "Access-Control-Allow-Headers"
 	HeaderAccessControlExposeHeaders    = "Access-Control-Expose-Headers"
 	HeaderAccessControlAllowCredentials = "Access-Control-Allow-Credentials"
 	HeaderAccessControlMaxAge           = "Access-Control-Max-Age"
+	HeaderAccessControlRequestMethod    = "Access-Control-Request-Method"
+	HeaderAccessControlRequestHeaders   = "Access-Control-Request-Headers"
 	HeaderVary                          = "Vary"
-)
 
-const (
 	ContentTypeJSONUTF8        = "application/json; charset=utf-8"
 	ContentTypeTextUTF8        = "text/plain; charset=utf-8"
 	ContentTypeHTMLUTF8        = "text/html; charset=utf-8"
@@ -54,18 +50,12 @@ const (
 	ContentTypeFormURLEncoded  = "application/x-www-form-urlencoded"
 	ContentTypeMultipartForm   = "multipart/form-data"
 	ContentTypeJSON            = "application/json"
-)
 
-const (
 	BearerPrefix = "Bearer "
-)
 
-const (
 	CacheControlNoCache = "no-cache"
 	ConnectionKeepAlive = "keep-alive"
-)
 
-const (
 	MsgInternalServerError = "internal server error"
 	MsgMissingToken        = "missing token"
 	MsgInvalidToken        = "invalid token"

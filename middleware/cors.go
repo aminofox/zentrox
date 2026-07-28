@@ -10,6 +10,7 @@ import (
 
 type CORSConfig struct {
 	AllowOrigins     []string
+	AllowOriginFunc  func(origin string) bool
 	AllowMethods     []string
 	AllowHeaders     []string
 	ExposeHeaders    []string
@@ -46,43 +47,55 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 	return func(c *zentrox.Context) {
 		origin := c.GetHeader(zentrox.HeaderOrigin)
 		h := c.Writer.Header()
-
 		if origin == "" {
-			origin = "*"
+			c.Next()
+			return
 		}
 
 		acao := ""
 		if hasWildcard && !cfg.AllowCredentials {
 			acao = "*"
+		} else if cfg.AllowOriginFunc != nil && cfg.AllowOriginFunc(origin) {
+			acao = origin
 		} else if allowMap[origin] {
 			acao = origin
-		} else if hasWildcard {
-			acao = origin
+		}
+
+		if acao != "*" {
+			addVary(h, zentrox.HeaderOrigin)
 		}
 
 		if acao != "" {
 			h.Set(zentrox.HeaderAccessControlAllowOrigin, acao)
+
+			if allowMethods != "" {
+				h.Set(zentrox.HeaderAccessControlAllowMethods, allowMethods)
+			}
+			if allowHeaders != "" {
+				if strings.TrimSpace(allowHeaders) == "*" {
+					if requested := c.GetHeader(zentrox.HeaderAccessControlRequestHeaders); requested != "" {
+						h.Set(zentrox.HeaderAccessControlAllowHeaders, requested)
+						addVary(h, zentrox.HeaderAccessControlRequestHeaders)
+					} else {
+						h.Set(zentrox.HeaderAccessControlAllowHeaders, allowHeaders)
+					}
+				} else {
+					h.Set(zentrox.HeaderAccessControlAllowHeaders, allowHeaders)
+				}
+			}
+			if exposeHeaders != "" {
+				h.Set(zentrox.HeaderAccessControlExposeHeaders, exposeHeaders)
+			}
+			if cfg.AllowCredentials {
+				h.Set(zentrox.HeaderAccessControlAllowCredentials, "true")
+			}
+			if cfg.MaxAge > 0 {
+				h.Set(zentrox.HeaderAccessControlMaxAge, maxAge)
+			}
 		}
 
-		if allowMethods != "" {
-			h.Set(zentrox.HeaderAccessControlAllowMethods, allowMethods)
-		}
-		if allowHeaders != "" {
-			h.Set(zentrox.HeaderAccessControlAllowHeaders, allowHeaders)
-		}
-		if exposeHeaders != "" {
-			h.Set(zentrox.HeaderAccessControlExposeHeaders, exposeHeaders)
-		}
-		if cfg.AllowCredentials {
-			h.Set(zentrox.HeaderAccessControlAllowCredentials, "true")
-		}
-		if cfg.MaxAge > 0 {
-			h.Set(zentrox.HeaderAccessControlMaxAge, maxAge)
-		}
-
-		h.Add(zentrox.HeaderVary, zentrox.HeaderOrigin)
-
-		if c.Request.Method == http.MethodOptions {
+		if c.Request.Method == http.MethodOptions && c.GetHeader(zentrox.HeaderAccessControlRequestMethod) != "" {
+			addVary(h, zentrox.HeaderAccessControlRequestMethod)
 			c.SendStatus(http.StatusNoContent)
 			c.Abort()
 			return
@@ -90,4 +103,15 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 
 		c.Next()
 	}
+}
+
+func addVary(h http.Header, value string) {
+	for _, existing := range h.Values(zentrox.HeaderVary) {
+		for _, part := range strings.Split(existing, ",") {
+			if strings.EqualFold(strings.TrimSpace(part), value) {
+				return
+			}
+		}
+	}
+	h.Add(zentrox.HeaderVary, value)
 }

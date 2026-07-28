@@ -2,12 +2,14 @@ package zentrox
 
 import (
 	"net/http"
+	"sort"
 	"strings"
 )
 
 // routeEntry carries the final, compiled handler stack for a route.
 type routeEntry struct {
-	stack []Handler
+	stack   []Handler
+	pattern string
 }
 
 // routeNode represents a node in the route trie.
@@ -47,6 +49,8 @@ func (r *router) add(method, pattern string, mws []Handler, h Handler) {
 			if cur.param == nil {
 				cur.param = &routeNode{static: map[string]*routeNode{}}
 				cur.pname = s.name // already without ':'
+			} else if cur.pname != s.name {
+				panic("route parameter name conflict: :" + cur.pname + " vs :" + s.name)
 			}
 			cur = cur.param
 		case s.isWildcard:
@@ -56,6 +60,8 @@ func (r *router) add(method, pattern string, mws []Handler, h Handler) {
 			if cur.wildcard == nil {
 				cur.wildcard = &routeNode{static: map[string]*routeNode{}}
 				cur.wname = s.name // already without '*'
+			} else if cur.wname != s.name {
+				panic("route wildcard name conflict: *" + cur.wname + " vs *" + s.name)
 			}
 			cur = cur.wildcard
 		default:
@@ -74,9 +80,12 @@ func (r *router) add(method, pattern string, mws []Handler, h Handler) {
 	if cur.handlers == nil {
 		cur.handlers = map[string]*routeEntry{}
 	}
+	if _, exists := cur.handlers[method]; exists {
+		panic("duplicate route registered: " + method + " " + pattern)
+	}
 	stack := append([]Handler{}, mws...)
 	stack = append(stack, h)
-	cur.handlers[method] = &routeEntry{stack: stack}
+	cur.handlers[method] = &routeEntry{stack: stack, pattern: pattern}
 }
 
 // match walks the trie using a zero-allocation path iterator. It fills params.
@@ -190,6 +199,7 @@ func (r *router) allowed(path string) []string {
 	if _, ok := seen[http.MethodOptions]; !ok {
 		out = append(out, http.MethodOptions)
 	}
+	sort.Strings(out)
 	return out
 }
 
@@ -208,6 +218,7 @@ func compilePattern(p string) []compiledSeg {
 	if p == "" || p == "/" {
 		return nil
 	}
+	pattern := p
 	if p[0] == '/' {
 		p = p[1:]
 	}
@@ -221,10 +232,16 @@ func compilePattern(p string) []compiledSeg {
 			continue
 		}
 		if s[0] == ':' {
+			if len(s) == 1 {
+				panic("route parameter name cannot be empty: " + pattern)
+			}
 			out = append(out, compiledSeg{isParam: true, name: s[1:]})
 			continue
 		}
 		if s[0] == '*' {
+			if len(s) == 1 {
+				panic("route wildcard name cannot be empty: " + pattern)
+			}
 			out = append(out, compiledSeg{isWildcard: true, name: s[1:]})
 			continue
 		}

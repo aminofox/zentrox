@@ -52,7 +52,7 @@ go get github.com/aminofox/zentrox/v2
 - ✅ **Built-in essentials** - CORS, JWT, Gzip, logging, error handling
 - ✅ **HTTP hardening middleware** - Security headers, request limits, method/URI guards
 - ✅ **Validation & binding** - Built-in request validation
-- ✅ **Context pooling** - Zero allocations for high performance
+- ✅ **Context pooling** - Zero allocations on router/context hot paths
 
 ---
 
@@ -84,6 +84,20 @@ app.GET("/files/*filepath", func(c *zentrox.Context) {
 })
 ```
 
+### Custom Methods and Slash Behavior
+
+```go
+app.Handle("REPORT", "/reports/:id", handler)
+app.OPTIONS("/reports/:id", optionsHandler)
+```
+
+By default Zentrox keeps the historical `SlashNormalize` behavior, where repeated slashes are treated like one slash by the router. Security-sensitive apps can opt into stricter canonical paths:
+
+```go
+app.SetSlashBehavior(zentrox.SlashStrict)        // 404 on repeated/trailing slash
+app.SetSlashBehavior(zentrox.SlashRedirectClean) // 308 redirect to the clean path
+```
+
 ### Route Groups
 
 ```go
@@ -91,6 +105,8 @@ api := app.Scope("/api")
 api.GET("/users", listUsers)
 api.POST("/users", createUser)
 ```
+
+Routes, middleware, scopes, lifecycle hooks and trusted proxy settings are frozen after the app starts serving. Register everything during startup.
 
 ---
 
@@ -136,6 +152,8 @@ func MyMiddleware() zentrox.Handler {
 }
 ```
 
+`c.Next()` advances the chain once; calling it again after the rest of the stack has run is a no-op. Call `c.Abort()` after writing a terminal response to stop later handlers.
+
 ### Built-in Middleware
 
 Zentrox includes essential middleware plus lightweight utilities:
@@ -177,6 +195,8 @@ Or use defaults:
 app.Plug(middleware.CORS(middleware.DefaultCORS()))
 ```
 
+Credentialed CORS requires explicit origins or `AllowOriginFunc`; wildcard origins are only emitted when credentials are disabled.
+
 ---
 
 ## JWT (Simplified)
@@ -185,19 +205,20 @@ One simple config - no more separate JWT and JWTChecks:
 
 ```go
 import (
-    "errors"
+    "os"
     "time"
 )
 
-secret := []byte("your-secret-key")
+secret := []byte(os.Getenv("JWT_SECRET")) // use a strong secret from config/secrets storage
 
 app.Plug(middleware.JWT(middleware.JWTConfig{
 	Secret:     secret,
+	Issuer:     "zentrox-app",
+	Audience:   "api",
+	ClockSkew:  30 * time.Second,
 	ContextKey: "user",
-	ValidateFunc: func(claims map[string]any) error {
-		if exp, ok := claims["exp"].(float64); ok && time.Now().Unix() > int64(exp) {
-			return errors.New("token expired")
-		}
+	ValidateFunc: func(claims *middleware.JWTClaims) error {
+		// Optional domain checks, for example account status or token revocation.
 		return nil
 	},
 }))
@@ -207,10 +228,12 @@ Get user in handler:
 
 ```go
 app.GET("/me", func(c *zentrox.Context) {
-    user, _ := c.Get("user")
-    c.JSON(200, user)
+    claims, _ := c.Get("user")
+    c.JSON(200, claims)
 })
 ```
+
+The built-in JWT middleware supports HS256 only. It validates `exp`, `nbf`, future `iat`, issuer and audience when configured, rejects empty secrets, and rejects multiple Authorization headers. For OIDC/JWKS/key rotation, plug in a dedicated auth package with `WrapHTTP` or custom middleware.
 
 ## Request ID
 
@@ -347,6 +370,36 @@ go test ./z_test -run '^$' -bench BenchmarkMiddlewareCost_ -benchmem
 
 ---
 
+## Static Files & Uploads
+
+Static file serving cleans request paths, rejects traversal outside the mounted directory, and blocks symlink targets that resolve outside `Dir` by default:
+
+```go
+app.Static("/assets", zentrox.StaticOptions{
+    Dir:        "./public",
+    Index:      "index.html",
+    AllowedExt: []string{".html", ".css", ".js", ".png", ".jpg", ".svg", ".ico"},
+})
+```
+
+Set `FollowSymlinks: true` only when the mounted directory and all symlink targets are trusted.
+
+For uploads, prefer a dedicated destination directory, extension allow-list, filename sanitization and generated names:
+
+```go
+saved, err := c.SaveUploadedFile("file", "./uploads", zentrox.UploadOptions{
+    MaxMemory:          10 << 20,
+    AllowedExt:         []string{".png", ".jpg", ".jpeg", ".pdf"},
+    Sanitize:           true,
+    GenerateUniqueName: true,
+    Overwrite:          false,
+})
+```
+
+`SaveUploadedFile` always saves under the destination directory, refuses symlink overwrite, and creates files with private `0600` permissions.
+
+---
+
 ## Binding & Validation
 
 ```go
@@ -366,6 +419,8 @@ app.POST("/users", func(c *zentrox.Context) {
 })
 ```
 
+Use `BindStrictJSONInto` for security-sensitive endpoints. It rejects unknown fields, duplicate JSON object keys and multiple JSON documents.
+
 Supported validators:
 - `required` - field must be present
 - `min=N`, `max=N` - min/max value or length
@@ -373,6 +428,44 @@ Supported validators:
 - `email` - valid email
 - `oneof=a b c` - value must be one of
 - `regex=pattern` - match regex
+
+The built-in validator is intentionally small. For larger apps, plug in a dedicated validator during startup:
+
+```go
+import playground "github.com/go-playground/validator/v10"
+
+validate := playground.New()
+app.SetValidatorFunc(validate.Struct)
+```
+
+Any custom engine can be used by implementing:
+
+```go
+type StructValidator interface {
+    ValidateStruct(v any) error
+}
+```
+
+---
+
+## Extension Points
+
+Zentrox keeps the core small and lets apps replace heavier subsystems during startup.
+
+Use a dedicated validator package when the built-in tags are not enough:
+
+```go
+validate := playground.New()
+app.SetValidatorFunc(validate.Struct)
+```
+
+Use a custom JSON codec when you want another serializer:
+
+```go
+app.SetJSONCodecFuncs(json.Marshal, json.Unmarshal)
+```
+
+Both hooks are frozen once the app starts serving, so request behavior stays stable at runtime.
 
 ---
 
@@ -398,36 +491,42 @@ c.GetHeader("X-Token")  // Request header
 
 // Binding
 c.BindJSONInto(&dst)    // Bind & validate JSON
+c.BindStrictJSONInto(&dst) // Strict JSON: unknown/duplicate keys rejected
 c.BindFormInto(&dst)    // Bind & validate form
 c.BindQueryInto(&dst)   // Bind & validate query
 
 // Output
-c.JSON(200, data)       // Send JSON
-c.String(200, "ok")     // Send text (with format support)
-c.HTML(200, html)       // Send HTML
-c.XML(200, data)        // Send XML
-c.Data(200, "text/plain", bytes)  // Send raw bytes
-c.SendStatus(200)       // Send status only
+c.JSON(200, data)       // Send JSON, returns write/encode errors
+c.String(200, "ok")     // Send text, returns write errors
+c.HTML(200, html)       // Send HTML, returns write errors
+c.XML(200, data)        // Send XML, returns marshal/write errors
+c.Data(200, "text/plain", bytes)  // Send raw bytes, returns write errors
+c.SendStatus(200)       // Send status only, returns write errors
 c.SetHeader("X-ID", id) // Response header
 
 // Storage
 c.Set("key", value)     // Store value
 c.Get("key")            // Retrieve value
+c.Copy()                // Shallow request-safe copy for background goroutines
 ```
+
+Do not keep `*zentrox.Context` after the request returns. Use `c.Copy()` and avoid writing to `ResponseWriter` from background goroutines.
 
 ---
 
 ## Performance
 
-Zentrox is designed for speed:
-- Context pooling (zero allocations per request)
+Zentrox is designed for a small, fast routing and middleware path:
+- Context pooling (zero allocations on router/context hot paths)
 - Fast routing (compiled trie)
 - Efficient middleware chain
 
-Benchmarks on Apple M1 Pro:
-- ~1M rps for static routes
-- ~900K rps for parameterized routes
-- ~740K rps for JSON responses
+Benchmark numbers depend on Go version, CPU, concurrency, transport, payload and middleware stack. Reproduce local numbers with:
+
+```bash
+go test ./z_test -bench . -benchmem
+go test -race ./...
+```
 
 ---
 
@@ -437,9 +536,11 @@ Benchmarks on Apple M1 Pro:
 package main
 
 import (
+    "os"
+    "time"
+
     "github.com/aminofox/zentrox/v2"
     "github.com/aminofox/zentrox/v2/middleware"
-    "time"
 )
 
 type User struct {
@@ -490,7 +591,7 @@ func main() {
     })
 
     // Protected routes
-    secret := []byte("your-secret-key")
+    secret := []byte(os.Getenv("JWT_SECRET"))
     admin := app.Scope("/admin", middleware.JWT(middleware.JWTConfig{
         Secret: secret,
     }))
@@ -513,10 +614,10 @@ func main() {
 - **Minimal by Design**: Focused middleware set - no bloat, easy to understand
 - **Clean API**: Less boilerplate, cleaner patterns, better defaults
 - **Easy Integration**: Custom logger and JWT support to fit your existing systems
-- **Faster routing**: Compiled trie-based router with ~2M rps
+- **Faster routing**: Compiled trie-based router with reproducible local benchmarks
 - **Better defaults**: Security and performance out of the box
 - **Modern features**: Validation, HTTP hardening middleware, automatic middleware chaining
-- **Production-ready**: Context pooling, panic recovery, zero allocations
+- **Production-minded core**: Context pooling, panic recovery, route freezing and safer response helpers
 
 ---
 

@@ -2,8 +2,10 @@ package z_test
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/aminofox/zentrox/v2"
@@ -45,5 +47,65 @@ func TestErrorHandler_Fail(t *testing.T) {
 	app.ServeHTTP(w, req)
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("want 400, got %d", w.Code)
+	}
+}
+
+func TestErrorHandler_WrapError(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.GET("/err", zentrox.WrapError(func(c *zentrox.Context) error {
+		return zentrox.NewHTTPError(http.StatusTeapot, "short and stout")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/err", nil)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTeapot {
+		t.Fatalf("want 418, got %d", w.Code)
+	}
+	if !strings.Contains(w.Body.String(), "short and stout") {
+		t.Fatalf("expected public error message, got %q", w.Body.String())
+	}
+}
+
+func TestErrorHandler_UnknownErrorDoesNotLeakDetail(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.GET("/err", zentrox.WrapError(func(c *zentrox.Context) error {
+		return errors.New("database password leaked in internal detail")
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/err", nil)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("want 500, got %d", w.Code)
+	}
+	if strings.Contains(w.Body.String(), "database password") {
+		t.Fatalf("unknown error detail leaked to client: %q", w.Body.String())
+	}
+}
+
+func TestErrorHandler_DoesNotDoubleWriteCommittedResponse(t *testing.T) {
+	app := zentrox.NewApp()
+	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.GET("/partial", func(c *zentrox.Context) {
+		if err := c.String(http.StatusAccepted, "already written"); err != nil {
+			t.Fatal(err)
+		}
+		c.SetError(errors.New("late failure"))
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/partial", nil)
+	w := httptest.NewRecorder()
+	app.ServeHTTP(w, req)
+
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("want original 202, got %d", w.Code)
+	}
+	if got := w.Body.String(); got != "already written" {
+		t.Fatalf("body should not be overwritten, got %q", got)
 	}
 }

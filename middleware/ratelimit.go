@@ -14,6 +14,8 @@ type RateLimitConfig struct {
 	KeyFunc    func(*zentrox.Context) string
 	OnLimit    func(*zentrox.Context)
 	StaleAfter time.Duration
+	// MaxKeys bounds in-memory bucket cardinality. Set a negative value to disable the cap.
+	MaxKeys int
 }
 
 type bucket struct {
@@ -36,6 +38,7 @@ func DefaultRateLimit() RateLimitConfig {
 			})
 		},
 		StaleAfter: 10 * time.Minute,
+		MaxKeys:    10000,
 	}
 }
 
@@ -57,6 +60,9 @@ func RateLimit(cfg RateLimitConfig) zentrox.Handler {
 	if cfg.StaleAfter <= 0 {
 		cfg.StaleAfter = 10 * time.Minute
 	}
+	if cfg.MaxKeys == 0 {
+		cfg.MaxKeys = 10000
+	}
 
 	var mu sync.Mutex
 	buckets := make(map[string]*bucket)
@@ -76,6 +82,13 @@ func RateLimit(cfg RateLimitConfig) zentrox.Handler {
 		}
 		b := buckets[key]
 		if b == nil {
+			if cfg.MaxKeys > 0 && len(buckets) >= cfg.MaxKeys {
+				cleanup(now)
+				lastCleanup = now
+				if len(buckets) >= cfg.MaxKeys {
+					return false
+				}
+			}
 			b = &bucket{tokens: cfg.Burst, last: now, seen: now}
 			buckets[key] = b
 		}

@@ -33,8 +33,8 @@ func DefaultErrorHandler() ErrorHandlerConfig {
 //     as problem+json if client accepts it, otherwise JSON {code,message}.
 //   - c.Error() set by handlers: writes that error as-is (zentrox.HTTPError),
 //     honoring problem+json when requested.
-//   - For unknown errors: maps to 500 with cfg.DefaultMessage and includes detail
-//     text in a safe envelope.
+//   - For unknown errors: maps to 500 with cfg.DefaultMessage without exposing
+//     internal error details to the client.
 //
 // Notes:
 //   - This middleware does NOT swallow the chain prematurely: it runs c.Next(),
@@ -52,6 +52,10 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 				if cfg.LogPanic {
 					log.Printf("panic: %v", r)
 				}
+				if responseCommitted(c) {
+					c.Abort()
+					return
+				}
 				// Respect content negotiation for problem+json.
 				wantsProblem := strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderAccept)), zentrox.ContentTypeProblemJSON)
 				if wantsProblem {
@@ -68,16 +72,16 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 
 		// Continue the chain.
 		c.Next()
-		if c.Aborted() {
-			return
-		}
 
 		// If a handler recorded an error, render it now.
 		if err := c.Error(); err != nil {
+			if responseCommitted(c) {
+				return
+			}
 			wantsProblem := strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderAccept)), zentrox.ContentTypeProblemJSON)
 
 			switch e := err.(type) {
-			case zentrox.HTTPError:
+			case *zentrox.HTTPError:
 				// Application-level error with explicit status code.
 				if wantsProblem {
 					// Map to RFC 9457 problem+json; use Message as title and include detail when present.
@@ -103,12 +107,19 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 					c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 						Code:    http.StatusInternalServerError,
 						Message: cfg.DefaultMessage,
-						Detail:  err.Error(),
 					})
 				}
 				c.Abort()
 				return
 			}
 		}
+
+		if c.Aborted() {
+			return
+		}
 	}
+}
+
+func responseCommitted(c *zentrox.Context) bool {
+	return c.ResponseCommitted()
 }
