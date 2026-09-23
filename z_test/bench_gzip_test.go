@@ -12,7 +12,7 @@ import (
 
 func BenchmarkGzip_BigJSON(b *testing.B) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.Gzip())
+	app.Use(middleware.Gzip())
 
 	payload := "{\"data\":\"" + strings.Repeat("abcdef0123456789", 4096) + "\"}"
 	app.GET("/json", func(c *zentrox.Context) {

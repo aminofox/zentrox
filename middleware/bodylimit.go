@@ -18,7 +18,7 @@ func DefaultBodyLimit() BodyLimitConfig {
 	return BodyLimitConfig{
 		MaxBytes: 1 << 20, // 1 MiB
 		OnLimit: func(c *zentrox.Context) {
-			c.Fail(http.StatusRequestEntityTooLarge, zentrox.MsgPayloadTooLarge)
+			_ = c.Fail(http.StatusRequestEntityTooLarge, zentrox.MsgPayloadTooLarge)
 		},
 	}
 }
@@ -29,7 +29,7 @@ func BodyLimit(cfg BodyLimitConfig) zentrox.Handler {
 	}
 	if cfg.OnLimit == nil {
 		cfg.OnLimit = func(c *zentrox.Context) {
-			c.Fail(http.StatusRequestEntityTooLarge, zentrox.MsgPayloadTooLarge)
+			_ = c.Fail(http.StatusRequestEntityTooLarge, zentrox.MsgPayloadTooLarge)
 		}
 	}
 

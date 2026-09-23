@@ -23,7 +23,7 @@ func DefaultConcurrencyLimit() ConcurrencyLimitConfig {
 		MaxConcurrent: max,
 		QueueTimeout:  0,
 		OnLimit: func(c *zentrox.Context) {
-			c.Fail(http.StatusServiceUnavailable, zentrox.MsgServerBusy)
+			_ = c.Fail(http.StatusServiceUnavailable, zentrox.MsgServerBusy)
 		},
 	}
 }
@@ -34,7 +34,7 @@ func ConcurrencyLimit(cfg ConcurrencyLimitConfig) zentrox.Handler {
 	}
 	if cfg.OnLimit == nil {
 		cfg.OnLimit = func(c *zentrox.Context) {
-			c.Fail(http.StatusServiceUnavailable, zentrox.MsgServerBusy)
+			_ = c.Fail(http.StatusServiceUnavailable, zentrox.MsgServerBusy)
 		}
 	}
 

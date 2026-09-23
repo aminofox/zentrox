@@ -20,7 +20,7 @@ type httpErr struct {
 
 func TestErrorHandler_Panic(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 	app.GET("/panic", func(c *zentrox.Context) { panic("boom") })
 
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
@@ -39,7 +39,7 @@ func TestErrorHandler_Panic(t *testing.T) {
 
 func TestErrorHandler_Fail(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 	app.GET("/bad", func(c *zentrox.Context) { c.Fail(http.StatusBadRequest, "bad req") })
 
 	req := httptest.NewRequest(http.MethodGet, "/bad", nil)
@@ -52,7 +52,7 @@ func TestErrorHandler_Fail(t *testing.T) {
 
 func TestErrorHandler_WrapError(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 	app.GET("/err", zentrox.WrapError(func(c *zentrox.Context) error {
 		return zentrox.NewHTTPError(http.StatusTeapot, "short and stout")
 	}))
@@ -71,7 +71,7 @@ func TestErrorHandler_WrapError(t *testing.T) {
 
 func TestErrorHandler_UnknownErrorDoesNotLeakDetail(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 	app.GET("/err", zentrox.WrapError(func(c *zentrox.Context) error {
 		return errors.New("database password leaked in internal detail")
 	}))
@@ -90,7 +90,7 @@ func TestErrorHandler_UnknownErrorDoesNotLeakDetail(t *testing.T) {
 
 func TestErrorHandler_DoesNotDoubleWriteCommittedResponse(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 	app.GET("/partial", func(c *zentrox.Context) {
 		if err := c.String(http.StatusAccepted, "already written"); err != nil {
 			t.Fatal(err)

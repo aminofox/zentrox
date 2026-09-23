@@ -17,7 +17,7 @@ func main() {
 	app := zentrox.NewApp()
 
 	// Standardize errors & panics
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 
 	app.GET("/", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "zentrox up!")

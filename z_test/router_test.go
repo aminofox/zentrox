@@ -1,6 +1,7 @@
 package z_test
 
 import (
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -11,7 +12,7 @@ import (
 
 func newApp() *zentrox.App {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
+	app.Use(middleware.ErrorHandler(middleware.DefaultErrorHandler()))
 	return app
 }
 
@@ -36,9 +37,9 @@ func TestRouter_Static(t *testing.T) {
 func TestRouter_ParamsAndWildcard(t *testing.T) {
 	app := newApp()
 	app.GET("/users/:id/files/*path", func(c *zentrox.Context) {
-		id := c.Param("id")
-		path := c.Param("path")
-		c.JSON(http.StatusOK, map[string]string{"id": id, "path": path})
+		id := html.EscapeString(c.Param("id"))
+		path := html.EscapeString(c.Param("path"))
+		_ = c.JSON(http.StatusOK, map[string]string{"id": id, "path": path})
 	})
 
 	req := httptest.NewRequest(http.MethodGet, "/users/42/files/a/b/c.txt", nil)

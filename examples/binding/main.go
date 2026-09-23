@@ -1,6 +1,7 @@
 package main
 
 import (
+	"html"
 	"log"
 	"net/http"
 
@@ -22,7 +23,7 @@ type SearchDTO struct {
 
 func main() {
 	app := zentrox.NewApp()
-	app.Plug(
+	app.Use(
 		middleware.CORS(middleware.CORSConfig{
 			AllowOrigins:     []string{"http://localhost:5173", "*"},
 			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
@@ -37,19 +38,19 @@ func main() {
 	app.POST("/users", func(c *zentrox.Context) {
 		var in CreateUserDTO
 		if err := c.BindInto(&in); err != nil {
-			c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+			_ = c.JSON(http.StatusBadRequest, map[string]any{"error": html.EscapeString(err.Error())})
 			return
 		}
-		c.JSON(http.StatusOK, map[string]any{"created": in})
+		_ = c.JSON(http.StatusOK, map[string]any{"created": in})
 	})
 
 	app.GET("/search", func(c *zentrox.Context) {
 		var q SearchDTO
 		if err := c.BindQueryInto(&q); err != nil {
-			c.JSON(http.StatusBadRequest, map[string]any{"error": err.Error()})
+			_ = c.JSON(http.StatusBadRequest, map[string]any{"error": html.EscapeString(err.Error())})
 			return
 		}
-		c.JSON(http.StatusOK, map[string]any{"query": q})
+		_ = c.JSON(http.StatusOK, map[string]any{"query": q})
 	})
 
 	log.Println("listening on :8000")

@@ -13,7 +13,7 @@ import (
 
 func TestRequestID_GenerateAndReuse(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.RequestID(middleware.DefaultRequestID()))
+	app.Use(middleware.RequestID(middleware.DefaultRequestID()))
 	app.GET("/id", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "%s", c.RequestID())
 	})
@@ -45,7 +45,7 @@ func TestRequestID_GenerateAndReuse(t *testing.T) {
 func TestLoggerUsesRouteTemplate(t *testing.T) {
 	app := zentrox.NewApp()
 	var loggedPath string
-	app.Plug(middleware.LoggerWithFunc(func(method, path string, status int, duration time.Duration, err error) {
+	app.Use(middleware.LoggerWithFunc(func(method, path string, status int, duration time.Duration, err error) {
 		loggedPath = path
 	}))
 	app.GET("/users/:id", func(c *zentrox.Context) {
@@ -62,7 +62,7 @@ func TestLoggerUsesRouteTemplate(t *testing.T) {
 
 func TestRateLimit_Basic(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
+	app.Use(middleware.RateLimit(middleware.RateLimitConfig{
 		Rate:  1,
 		Burst: 1,
 		KeyFunc: func(*zentrox.Context) string {
@@ -88,7 +88,7 @@ func TestRateLimit_Basic(t *testing.T) {
 
 func TestRateLimit_MaxKeysRejectsNewKeysWhenFull(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
+	app.Use(middleware.RateLimit(middleware.RateLimitConfig{
 		Rate:    100,
 		Burst:   100,
 		MaxKeys: 1,
@@ -115,7 +115,7 @@ func TestRateLimit_MaxKeysRejectsNewKeysWhenFull(t *testing.T) {
 
 func TestCORS_ImplicitPreflightUsesGlobalMiddleware(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.CORS(middleware.DefaultCORS()))
+	app.Use(middleware.CORS(middleware.DefaultCORS()))
 	app.GET("/cors", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -143,7 +143,7 @@ func TestCORS_ImplicitPreflightUsesGlobalMiddleware(t *testing.T) {
 
 func TestCORS_NoOriginDoesNotSetCORSHeaders(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.CORS(middleware.DefaultCORS()))
+	app.Use(middleware.CORS(middleware.DefaultCORS()))
 	app.GET("/cors", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -161,7 +161,7 @@ func TestCORS_NoOriginDoesNotSetCORSHeaders(t *testing.T) {
 
 func TestCORS_WildcardWithCredentialsDoesNotReflectOrigin(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.CORS(middleware.CORSConfig{
+	app.Use(middleware.CORS(middleware.CORSConfig{
 		AllowOrigins:     []string{"*"},
 		AllowMethods:     []string{http.MethodGet},
 		AllowHeaders:     []string{"Content-Type"},
@@ -189,7 +189,7 @@ func TestCORS_WildcardWithCredentialsDoesNotReflectOrigin(t *testing.T) {
 
 func TestCORS_AllowOriginFuncWithCredentials(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.CORS(middleware.CORSConfig{
+	app.Use(middleware.CORS(middleware.CORSConfig{
 		AllowOriginFunc: func(origin string) bool {
 			return strings.HasSuffix(origin, ".example.com")
 		},
@@ -219,7 +219,7 @@ func TestCORS_AllowOriginFuncWithCredentials(t *testing.T) {
 
 func TestTimeoutMiddleware(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.Timeout(20 * time.Millisecond))
+	app.Use(middleware.Timeout(20 * time.Millisecond))
 	app.GET("/slow", func(c *zentrox.Context) {
 		<-c.Done()
 	})
@@ -234,7 +234,7 @@ func TestTimeoutMiddleware(t *testing.T) {
 
 func TestHTTPProtection_BlocksMethodAndLongURI(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.HTTPProtection(middleware.HTTPProtectionConfig{
+	app.Use(middleware.HTTPProtection(middleware.HTTPProtectionConfig{
 		AllowedMethods: []string{http.MethodPost},
 		MaxURLLength:   16,
 	}))
@@ -260,7 +260,7 @@ func TestHTTPProtection_BlocksMethodAndLongURI(t *testing.T) {
 
 func TestBodyLimit_BlocksLargePayload(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.BodyLimit(middleware.BodyLimitConfig{MaxBytes: 10}))
+	app.Use(middleware.BodyLimit(middleware.BodyLimitConfig{MaxBytes: 10}))
 
 	called := false
 	app.POST("/upload", func(c *zentrox.Context) {
@@ -287,7 +287,7 @@ func TestBodyLimit_BlocksLargePayload(t *testing.T) {
 
 func TestSecurityHeaders_Default(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()))
+	app.Use(middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()))
 	app.GET("/ok", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -308,7 +308,7 @@ func TestSecurityHeaders_Default(t *testing.T) {
 
 func TestConcurrencyLimit_QueueTimeout(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.ConcurrencyLimit(middleware.ConcurrencyLimitConfig{
+	app.Use(middleware.ConcurrencyLimit(middleware.ConcurrencyLimitConfig{
 		MaxConcurrent: 1,
 		QueueTimeout:  20 * time.Millisecond,
 	}))
@@ -354,7 +354,7 @@ func TestConcurrencyLimit_QueueTimeout(t *testing.T) {
 
 func TestDefaultAPIHardening_Preset(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.DefaultAPIHardening()...)
+	app.Use(middleware.DefaultAPIHardening()...)
 	app.GET("/ok", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -381,7 +381,7 @@ func TestDefaultAPIHardening_Preset(t *testing.T) {
 
 func TestDefaultAPIHardeningFast_Preset(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.DefaultAPIHardeningFast()...)
+	app.Use(middleware.DefaultAPIHardeningFast()...)
 	app.GET("/ok", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})

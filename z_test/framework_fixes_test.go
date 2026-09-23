@@ -3,6 +3,7 @@ package z_test
 import (
 	"bytes"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -288,9 +289,9 @@ func TestRoutePathMustStartWithSlash(t *testing.T) {
 	app.GET("missing-slash", func(c *zentrox.Context) {})
 }
 
-func TestScopeAcceptsRelativePath(t *testing.T) {
+func TestGroupAcceptsRelativePath(t *testing.T) {
 	app := zentrox.NewApp()
-	api := app.Scope("/api/")
+	api := app.Group("/api/")
 	api.GET("users", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -306,7 +307,7 @@ func TestSlashBehaviorStrictAndRedirect(t *testing.T) {
 	strict := zentrox.NewApp()
 	strict.SetSlashBehavior(zentrox.SlashStrict)
 	strict.GET("/users/:id", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "%s", c.Param("id"))
+		_ = c.String(http.StatusOK, "ok")
 	})
 
 	w := httptest.NewRecorder()
@@ -318,7 +319,7 @@ func TestSlashBehaviorStrictAndRedirect(t *testing.T) {
 	redirect := zentrox.NewApp()
 	redirect.SetSlashBehavior(zentrox.SlashRedirectClean)
 	redirect.GET("/users/:id", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "%s", c.Param("id"))
+		_ = c.String(http.StatusOK, "ok")
 	})
 
 	w = httptest.NewRecorder()
@@ -331,9 +332,9 @@ func TestSlashBehaviorStrictAndRedirect(t *testing.T) {
 	}
 }
 
-func TestScopeAutoOptions(t *testing.T) {
+func TestGroupAutoOptions(t *testing.T) {
 	app := zentrox.NewApp()
-	api := app.Scope("/api")
+	api := app.Group("/api")
 	api.GET("/users", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -398,14 +399,14 @@ func TestExplicitOptionsCanBeRegisteredAfterGET(t *testing.T) {
 	}
 }
 
-func TestScopeExplicitOptions(t *testing.T) {
+func TestGroupExplicitOptions(t *testing.T) {
 	app := zentrox.NewApp()
-	api := app.Scope("/api")
+	api := app.Group("/api")
 	api.GET("/resource", func(c *zentrox.Context) {
 		c.String(http.StatusOK, "get")
 	})
 	api.OPTIONS("/resource", func(c *zentrox.Context) {
-		c.String(http.StatusAccepted, "scope options")
+		c.String(http.StatusAccepted, "group options")
 	})
 
 	req := httptest.NewRequest(http.MethodOptions, "/api/resource", nil)
@@ -415,8 +416,8 @@ func TestScopeExplicitOptions(t *testing.T) {
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("want 202, got %d", w.Code)
 	}
-	if got := w.Body.String(); got != "scope options" {
-		t.Fatalf("body want %q, got %q", "scope options", got)
+	if got := w.Body.String(); got != "group options" {
+		t.Fatalf("body want %q, got %q", "group options", got)
 	}
 }
 
@@ -496,7 +497,7 @@ func TestStaticAllowsDirectoryIndexWithExtensionAllowList(t *testing.T) {
 func TestRealIPTrustedProxy(t *testing.T) {
 	app := zentrox.NewApp()
 	app.GET("/ip", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "%s", c.RealIP())
+		c.String(http.StatusOK, "%s", html.EscapeString(c.RealIP()))
 	})
 
 	// Default: no trusted proxy => ignore X-Forwarded-For
@@ -513,7 +514,7 @@ func TestRealIPTrustedProxy(t *testing.T) {
 	trustedApp := zentrox.NewApp()
 	trustedApp.SetTrustedProxies("10.0.0.0/8")
 	trustedApp.GET("/ip", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "%s", c.RealIP())
+		c.String(http.StatusOK, "%s", html.EscapeString(c.RealIP()))
 	})
 	req2 := httptest.NewRequest(http.MethodGet, "/ip", nil)
 	req2.RemoteAddr = "10.0.0.1:1234"

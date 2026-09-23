@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"time"
@@ -18,7 +19,7 @@ func handleLogic(ctx context.Context, param, requestID string) string {
 func main() {
 	app := zentrox.NewApp()
 
-	app.Plug(
+	app.Use(
 		middleware.CORS(middleware.DefaultCORS()),
 		middleware.Recovery(),
 		middleware.Logger(),
@@ -32,20 +33,21 @@ func main() {
 		SetPrintRoutes(true)
 
 	app.GET("/", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "zentrox up!")
+		_ = c.String(http.StatusOK, "zentrox up!")
 	})
 
 	app.GET("/ping", func(c *zentrox.Context) {
-		c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+		_ = c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 	})
 
 	app.GET("/:id", func(c *zentrox.Context) {
-		txt := handleLogic(c, c.Param("id"), "req-123")
-		c.String(http.StatusOK, "%s", txt)
+		id := html.EscapeString(c.Param("id"))
+		txt := handleLogic(c, id, "req-123")
+		_ = c.JSON(http.StatusOK, map[string]string{"result": txt})
 	})
 
 	app.GET("/fail", func(c *zentrox.Context) {
-		c.Fail(http.StatusBadRequest, "invalid argument", map[string]any{"field": "q"})
+		_ = c.Fail(http.StatusBadRequest, "invalid argument", map[string]any{"field": "q"})
 	})
 
 	app.GET("/panic", func(c *zentrox.Context) {
@@ -69,10 +71,10 @@ func main() {
 			Overwrite:          false,
 		})
 		if err != nil {
-			ctx.Fail(http.StatusBadRequest, "upload error", err.Error())
+			_ = ctx.Fail(http.StatusBadRequest, "upload error", html.EscapeString(err.Error()))
 			return
 		}
-		ctx.JSON(http.StatusOK, map[string]any{"saved": saved})
+		_ = ctx.JSON(http.StatusOK, map[string]any{"saved": saved})
 	})
 
 	log.Println("listening on :8000")

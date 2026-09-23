@@ -96,7 +96,7 @@ func CORS(cfg CORSConfig) zentrox.Handler {
 
 		if c.Request.Method == http.MethodOptions && c.GetHeader(zentrox.HeaderAccessControlRequestMethod) != "" {
 			addVary(h, zentrox.HeaderAccessControlRequestMethod)
-			c.SendStatus(http.StatusNoContent)
+			_ = c.SendStatus(http.StatusNoContent)
 			c.Abort()
 			return
 		}

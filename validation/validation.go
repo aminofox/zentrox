@@ -11,7 +11,7 @@ import (
 )
 
 // StructValidator is the validation engine used after request binding.
-// Implement this interface to plug in packages such as go-playground/validator.
+// Implement this interface to integrate external packages such as go-playground/validator.
 type StructValidator interface {
 	ValidateStruct(v any) error
 }

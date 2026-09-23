@@ -59,9 +59,9 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 				// Respect content negotiation for problem+json.
 				wantsProblem := strings.Contains(strings.ToLower(c.GetHeader(zentrox.HeaderAccept)), zentrox.ContentTypeProblemJSON)
 				if wantsProblem {
-					c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
+					_ = c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
 				} else {
-					c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
+					_ = c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 						Code:    http.StatusInternalServerError,
 						Message: cfg.DefaultMessage,
 					})
@@ -92,9 +92,9 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 							detail = s
 						}
 					}
-					c.Problem(e.Code, "about:blank", e.Message, detail, c.Request.URL.Path, nil)
+					_ = c.Problem(e.Code, "about:blank", e.Message, detail, c.Request.URL.Path, nil)
 				} else {
-					c.JSON(e.Code, e)
+					_ = c.JSON(e.Code, e)
 				}
 				c.Abort()
 				return
@@ -102,9 +102,9 @@ func ErrorHandler(cfg ErrorHandlerConfig) zentrox.Handler {
 			default:
 				// Unknown error type → map to 500.
 				if wantsProblem {
-					c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
+					_ = c.Problem(http.StatusInternalServerError, "about:blank", cfg.DefaultMessage, "", c.Request.URL.Path, nil)
 				} else {
-					c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
+					_ = c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 						Code:    http.StatusInternalServerError,
 						Message: cfg.DefaultMessage,
 					})

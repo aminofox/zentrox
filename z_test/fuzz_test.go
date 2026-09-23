@@ -27,7 +27,7 @@ func FuzzRouter(f *testing.F) {
 			defer func() {
 				_ = recover() // ignore panics on registration for fuzzing (e.g., wildcard not at end)
 			}()
-			
+
 			if method == "GET" {
 				app.GET(registerPath, func(c *zentrox.Context) {
 					c.String(http.StatusOK, "ok")

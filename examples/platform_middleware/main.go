@@ -15,7 +15,7 @@ func main() {
 	hardening := middleware.DefaultAPIHardeningConfig()
 	hardening.RateLimit = middleware.RateLimitConfig{Rate: 10, Burst: 20}
 	hardening.Timeout = 200 * time.Millisecond
-	app.Plug(middleware.APIHardening(hardening)...)
+	app.Use(middleware.APIHardening(hardening)...)
 
 	app.GET("/", func(c *zentrox.Context) {
 		c.JSON(http.StatusOK, map[string]any{

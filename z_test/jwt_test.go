@@ -13,7 +13,7 @@ import (
 
 func TestJWT_MissingHeader(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{Secret: []byte("s")}))
+	app.Use(middleware.JWT(middleware.JWTConfig{Secret: []byte("s")}))
 	app.GET("/p", func(c *zentrox.Context) { c.String(200, "ok") })
 
 	req := httptest.NewRequest(http.MethodGet, "/p", nil)
@@ -27,7 +27,7 @@ func TestJWT_MissingHeader(t *testing.T) {
 func TestJWT_ValidToken(t *testing.T) {
 	secret := []byte("s3cr3t")
 	app := zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{Secret: secret}))
+	app.Use(middleware.JWT(middleware.JWTConfig{Secret: secret}))
 	app.GET("/me", func(c *zentrox.Context) {
 		if _, ok := c.Get("user"); !ok {
 			c.Fail(500, "no user in context", "")
@@ -56,7 +56,7 @@ func TestJWT_ValidToken(t *testing.T) {
 func TestJWT_ExpiredToken(t *testing.T) {
 	secret := []byte("s3cr3t")
 	app := zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{
+	app.Use(middleware.JWT(middleware.JWTConfig{
 		Secret: secret,
 		ValidateFunc: func(claims *middleware.JWTClaims) error {
 			// This is now redundant since the middleware checks ExpiresAt internally
@@ -89,7 +89,7 @@ func TestJWT_ExpiredToken(t *testing.T) {
 func TestJWT_AudienceArray(t *testing.T) {
 	secret := []byte("s3cr3t")
 	app := zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{Secret: secret, Audience: "api"}))
+	app.Use(middleware.JWT(middleware.JWTConfig{Secret: secret, Audience: "api"}))
 	app.GET("/me", func(c *zentrox.Context) { c.String(200, "ok") })
 
 	claims := &middleware.JWTClaims{
@@ -122,7 +122,7 @@ func TestJWT_IssuedAtFutureWithClockSkew(t *testing.T) {
 	tok, _ := middleware.SignHS256(claims, secret)
 
 	app := zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{Secret: secret}))
+	app.Use(middleware.JWT(middleware.JWTConfig{Secret: secret}))
 	app.GET("/me", func(c *zentrox.Context) { c.String(200, "ok") })
 	req := httptest.NewRequest(http.MethodGet, "/me", nil)
 	req.Header.Set(zentrox.HeaderAuthorization, zentrox.BearerPrefix+tok)
@@ -133,7 +133,7 @@ func TestJWT_IssuedAtFutureWithClockSkew(t *testing.T) {
 	}
 
 	app = zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{Secret: secret, ClockSkew: time.Minute}))
+	app.Use(middleware.JWT(middleware.JWTConfig{Secret: secret, ClockSkew: time.Minute}))
 	app.GET("/me", func(c *zentrox.Context) { c.String(200, "ok") })
 	w = httptest.NewRecorder()
 	app.ServeHTTP(w, req)
@@ -163,7 +163,7 @@ func TestJWT_EmptySecretConfigPanics(t *testing.T) {
 func TestJWT_RejectsMultipleAuthorizationHeaders(t *testing.T) {
 	secret := []byte("s3cr3t")
 	app := zentrox.NewApp()
-	app.Plug(middleware.JWT(middleware.JWTConfig{Secret: secret}))
+	app.Use(middleware.JWT(middleware.JWTConfig{Secret: secret}))
 	app.GET("/me", func(c *zentrox.Context) { c.String(200, "ok") })
 
 	claims := &middleware.JWTClaims{

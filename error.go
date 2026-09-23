@@ -15,7 +15,7 @@ func (e *HTTPError) Error() string {
 	return e.Message
 }
 
-// SetInternal attaches an internal error to the HTTPError (e.g., for logging) 
+// SetInternal attaches an internal error to the HTTPError (e.g., for logging)
 // without exposing it to the client in JSON serialization.
 func (e *HTTPError) SetInternal(err error) *HTTPError {
 	e.Internal = err

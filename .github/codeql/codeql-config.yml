@@ -1,0 +1,12 @@
+name: "CodeQL Configuration"
+
+paths-ignore:
+  - 'z_test/**'
+  - 'examples/**'
+  - 'benchmarks/**'
+  - '**/*_test.go'
+
+query-filters:
+  - exclude:
+      id: go/reflected-xss
+

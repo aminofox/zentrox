@@ -18,7 +18,7 @@ import (
 func main() {
     app := zentrox.NewApp()
 
-    app.Plug(middleware.Recovery(), middleware.Logger())
+    app.Use(middleware.Recovery(), middleware.Logger())
 
     app.GET("/", func(c *zentrox.Context) {
         c.String(200, "Hello!")
@@ -45,7 +45,7 @@ go get github.com/aminofox/zentrox/v2
 ## Features
 
 - ✅ **Minimal & Fast** - Only essential middleware included
-- ✅ **Simple API** - Clean and easy to learn
+- ✅ **Simple & Idiomatic API** - Clean, standard `app.Use()` and `app.Group()` patterns
 - ✅ **Easy Integration** - Custom logger and JWT support for your existing systems
 - ✅ **Automatic middleware chaining** - No manual `c.Next()` needed in handlers
 - ✅ **Fast routing** - Compiled trie with path params and wildcards
@@ -101,12 +101,12 @@ app.SetSlashBehavior(zentrox.SlashRedirectClean) // 308 redirect to the clean pa
 ### Route Groups
 
 ```go
-api := app.Scope("/api")
+api := app.Group("/api")
 api.GET("/users", listUsers)
 api.POST("/users", createUser)
 ```
 
-Routes, middleware, scopes, lifecycle hooks and trusted proxy settings are frozen after the app starts serving. Register everything during startup.
+Routes, middleware, groups, lifecycle hooks and trusted proxy settings are frozen after the app starts serving. Register everything during startup.
 
 ---
 
@@ -115,7 +115,7 @@ Routes, middleware, scopes, lifecycle hooks and trusted proxy settings are froze
 ### Global Middleware
 
 ```go
-app.Plug(
+app.Use(
     middleware.Recovery(),
     middleware.Logger(),
     middleware.CORS(middleware.DefaultCORS()),
@@ -131,11 +131,11 @@ app.GET("/secure", authMiddleware, handler)
 ### Group Middleware
 
 ```go
-admin := app.Scope("/admin", authMiddleware)
+admin := app.Group("/admin", authMiddleware)
 admin.GET("/stats", statsHandler)
 
 // Or add middleware after creating the group
-apiGroup := app.Scope("/api")
+apiGroup := app.Group("/api")
 apiGroup.Use(authMiddleware)
 apiGroup.GET("/users", listUsers)
 ```
@@ -173,14 +173,14 @@ middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()) // Baseline secu
 middleware.HTTPProtection(middleware.DefaultHTTPProtection()) // Method + URI guards
 middleware.BodyLimit(middleware.DefaultBodyLimit()) // Request body size limit
 middleware.ConcurrencyLimit(middleware.DefaultConcurrencyLimit()) // In-flight request cap
-middleware.DefaultAPIHardening()... // Preset stack (use with app.Plug)
+middleware.DefaultAPIHardening()... // Preset stack (use with app.Use)
 middleware.DefaultAPIHardeningFast()... // Lower-overhead preset
 ```
 
 ## CORS (Simplified)
 
 ```go
-app.Plug(middleware.CORS(middleware.CORSConfig{
+app.Use(middleware.CORS(middleware.CORSConfig{
     AllowOrigins:     []string{"http://localhost:3000"},
     AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
     AllowHeaders:     []string{"Content-Type", "Authorization"},
@@ -192,7 +192,7 @@ app.Plug(middleware.CORS(middleware.CORSConfig{
 Or use defaults:
 
 ```go
-app.Plug(middleware.CORS(middleware.DefaultCORS()))
+app.Use(middleware.CORS(middleware.DefaultCORS()))
 ```
 
 Credentialed CORS requires explicit origins or `AllowOriginFunc`; wildcard origins are only emitted when credentials are disabled.
@@ -211,7 +211,7 @@ import (
 
 secret := []byte(os.Getenv("JWT_SECRET")) // use a strong secret from config/secrets storage
 
-app.Plug(middleware.JWT(middleware.JWTConfig{
+app.Use(middleware.JWT(middleware.JWTConfig{
 	Secret:     secret,
 	Issuer:     "zentrox-app",
 	Audience:   "api",
@@ -233,12 +233,12 @@ app.GET("/me", func(c *zentrox.Context) {
 })
 ```
 
-The built-in JWT middleware supports HS256 only. It validates `exp`, `nbf`, future `iat`, issuer and audience when configured, rejects empty secrets, and rejects multiple Authorization headers. For OIDC/JWKS/key rotation, plug in a dedicated auth package with `WrapHTTP` or custom middleware.
+The built-in JWT middleware supports HS256 only. It validates `exp`, `nbf`, future `iat`, issuer and audience when configured, rejects empty secrets, and rejects multiple Authorization headers. For OIDC/JWKS/key rotation, integrate a dedicated auth package with `WrapHTTP` or custom middleware.
 
 ## Request ID
 
 ```go
-app.Plug(middleware.RequestID(middleware.DefaultRequestID()))
+app.Use(middleware.RequestID(middleware.DefaultRequestID()))
 
 app.GET("/trace", func(c *zentrox.Context) {
     c.JSON(200, map[string]any{"request_id": c.RequestID()})
@@ -248,7 +248,7 @@ app.GET("/trace", func(c *zentrox.Context) {
 ## Rate Limit
 
 ```go
-app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
+app.Use(middleware.RateLimit(middleware.RateLimitConfig{
     Rate:  20, // requests/sec
     Burst: 40,
     KeyFunc: func(c *zentrox.Context) string {
@@ -260,7 +260,7 @@ app.Plug(middleware.RateLimit(middleware.RateLimitConfig{
 ## Timeout
 
 ```go
-app.Plug(middleware.Timeout(2 * time.Second))
+app.Use(middleware.Timeout(2 * time.Second))
 
 app.GET("/slow", func(c *zentrox.Context) {
     select {
@@ -277,13 +277,13 @@ app.GET("/slow", func(c *zentrox.Context) {
 ## Security Headers
 
 ```go
-app.Plug(middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()))
+app.Use(middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()))
 ```
 
 Custom config:
 
 ```go
-app.Plug(middleware.SecurityHeaders(middleware.SecurityHeadersConfig{
+app.Use(middleware.SecurityHeaders(middleware.SecurityHeadersConfig{
     XContentTypeOptions: "nosniff",
     XFrameOptions:       "SAMEORIGIN",
     ReferrerPolicy:      "strict-origin",
@@ -296,7 +296,7 @@ app.Plug(middleware.SecurityHeaders(middleware.SecurityHeadersConfig{
 ## HTTP Protection
 
 ```go
-app.Plug(middleware.HTTPProtection(middleware.HTTPProtectionConfig{
+app.Use(middleware.HTTPProtection(middleware.HTTPProtectionConfig{
     AllowedMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"},
     MaxURLLength:   2048,
 }))
@@ -305,7 +305,7 @@ app.Plug(middleware.HTTPProtection(middleware.HTTPProtectionConfig{
 ## Body Limit
 
 ```go
-app.Plug(middleware.BodyLimit(middleware.BodyLimitConfig{
+app.Use(middleware.BodyLimit(middleware.BodyLimitConfig{
     MaxBytes: 1 << 20, // 1 MiB
 }))
 ```
@@ -313,7 +313,7 @@ app.Plug(middleware.BodyLimit(middleware.BodyLimitConfig{
 ## Concurrency Limit
 
 ```go
-app.Plug(middleware.ConcurrencyLimit(middleware.ConcurrencyLimitConfig{
+app.Use(middleware.ConcurrencyLimit(middleware.ConcurrencyLimitConfig{
     MaxConcurrent: 512,
     QueueTimeout:  50 * time.Millisecond,
 }))
@@ -326,7 +326,7 @@ Set `QueueTimeout: 0` to reject immediately when all slots are busy.
 Use the optimized preset directly:
 
 ```go
-app.Plug(middleware.DefaultAPIHardening()...)
+app.Use(middleware.DefaultAPIHardening()...)
 ```
 
 Or tune defaults:
@@ -337,7 +337,7 @@ cfg.BodyLimit.MaxBytes = 2 << 20 // 2 MiB
 cfg.ConcurrencyLimit.MaxConcurrent = 1024
 cfg.Timeout = 1500 * time.Millisecond
 
-app.Plug(middleware.APIHardening(cfg)...)
+app.Use(middleware.APIHardening(cfg)...)
 ```
 
 ## Default API Hardening Fast (Preset)
@@ -345,7 +345,7 @@ app.Plug(middleware.APIHardening(cfg)...)
 Use this when you want lower middleware overhead and can skip request-id/timeout:
 
 ```go
-app.Plug(middleware.DefaultAPIHardeningFast()...)
+app.Use(middleware.DefaultAPIHardeningFast()...)
 ```
 
 Tune fast preset:
@@ -356,7 +356,7 @@ cfg.ConcurrencyLimit.MaxConcurrent = 1536
 cfg.RateLimit.Rate = 50
 cfg.RateLimit.Burst = 100
 
-app.Plug(middleware.APIHardeningFast(cfg)...)
+app.Use(middleware.APIHardeningFast(cfg)...)
 ```
 
 For API services, a practical default stack is: `RequestID + SecurityHeaders + HTTPProtection + BodyLimit + ConcurrencyLimit + RateLimit + Timeout`.
@@ -429,7 +429,7 @@ Supported validators:
 - `oneof=a b c` - value must be one of
 - `regex=pattern` - match regex
 
-The built-in validator is intentionally small. For larger apps, plug in a dedicated validator during startup:
+The built-in validator is intentionally small. For larger apps, integrate a dedicated validator during startup:
 
 ```go
 import playground "github.com/go-playground/validator/v10"
@@ -553,7 +553,7 @@ func main() {
     app := zentrox.NewApp()
 
     // Global middleware
-    app.Plug(
+    app.Use(
         middleware.CORS(middleware.DefaultCORS()),
         middleware.Recovery(),
         middleware.Logger(),
@@ -569,7 +569,7 @@ func main() {
     })
 
     // API routes
-    api := app.Scope("/api")
+    api := app.Group("/api")
     
     api.GET("/users/:id", func(c *zentrox.Context) {
         user := User{
@@ -592,7 +592,7 @@ func main() {
 
     // Protected routes
     secret := []byte(os.Getenv("JWT_SECRET"))
-    admin := app.Scope("/admin", middleware.JWT(middleware.JWTConfig{
+    admin := app.Group("/admin", middleware.JWT(middleware.JWTConfig{
         Secret: secret,
     }))
 
@@ -612,7 +612,7 @@ func main() {
 ## Why Zentrox?
 
 - **Minimal by Design**: Focused middleware set - no bloat, easy to understand
-- **Clean API**: Less boilerplate, cleaner patterns, better defaults
+- **Idiomatic Go API**: Standard `app.Use()`, `app.Group()`, clean method chaining
 - **Easy Integration**: Custom logger and JWT support to fit your existing systems
 - **Faster routing**: Compiled trie-based router with reproducible local benchmarks
 - **Better defaults**: Security and performance out of the box
