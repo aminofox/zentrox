@@ -406,7 +406,6 @@ func (c *Context) Problem(status int, typeURI, title, detail, instance string, e
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(status)
 	enc := json.NewEncoder(c.Writer)
-	enc.SetEscapeHTML(false)
 	if err := enc.Encode(p); err != nil {
 		_, _ = c.Writer.Write([]byte(`{"type":"about:blank","title":"Internal Server Error","status":500}`))
 		return err

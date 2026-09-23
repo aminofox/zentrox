@@ -71,7 +71,7 @@ func main() {
 			Overwrite:          false,
 		})
 		if err != nil {
-			_ = ctx.Fail(http.StatusBadRequest, "upload error", err.Error())
+			_ = ctx.Fail(http.StatusBadRequest, "upload error", html.EscapeString(err.Error()))
 			return
 		}
 		_ = ctx.JSON(http.StatusOK, map[string]any{"saved": saved})

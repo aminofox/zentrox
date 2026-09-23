@@ -3,6 +3,7 @@ package z_test
 import (
 	"bytes"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -496,7 +497,7 @@ func TestStaticAllowsDirectoryIndexWithExtensionAllowList(t *testing.T) {
 func TestRealIPTrustedProxy(t *testing.T) {
 	app := zentrox.NewApp()
 	app.GET("/ip", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "%s", c.RealIP())
+		c.String(http.StatusOK, "%s", html.EscapeString(c.RealIP()))
 	})
 
 	// Default: no trusted proxy => ignore X-Forwarded-For
@@ -513,7 +514,7 @@ func TestRealIPTrustedProxy(t *testing.T) {
 	trustedApp := zentrox.NewApp()
 	trustedApp.SetTrustedProxies("10.0.0.0/8")
 	trustedApp.GET("/ip", func(c *zentrox.Context) {
-		c.String(http.StatusOK, "%s", c.RealIP())
+		c.String(http.StatusOK, "%s", html.EscapeString(c.RealIP()))
 	})
 	req2 := httptest.NewRequest(http.MethodGet, "/ip", nil)
 	req2.RemoteAddr = "10.0.0.1:1234"
