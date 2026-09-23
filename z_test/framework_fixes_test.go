@@ -3,7 +3,6 @@ package z_test
 import (
 	"bytes"
 	"errors"
-	"html"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -307,7 +306,7 @@ func TestSlashBehaviorStrictAndRedirect(t *testing.T) {
 	strict := zentrox.NewApp()
 	strict.SetSlashBehavior(zentrox.SlashStrict)
 	strict.GET("/users/:id", func(c *zentrox.Context) {
-		_ = c.String(http.StatusOK, "%s", html.EscapeString(c.Param("id")))
+		_ = c.String(http.StatusOK, "ok")
 	})
 
 	w := httptest.NewRecorder()
@@ -319,7 +318,7 @@ func TestSlashBehaviorStrictAndRedirect(t *testing.T) {
 	redirect := zentrox.NewApp()
 	redirect.SetSlashBehavior(zentrox.SlashRedirectClean)
 	redirect.GET("/users/:id", func(c *zentrox.Context) {
-		_ = c.String(http.StatusOK, "%s", html.EscapeString(c.Param("id")))
+		_ = c.String(http.StatusOK, "ok")
 	})
 
 	w = httptest.NewRecorder()

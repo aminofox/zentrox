@@ -43,7 +43,7 @@ func main() {
 	app.GET("/:id", func(c *zentrox.Context) {
 		id := html.EscapeString(c.Param("id"))
 		txt := handleLogic(c, id, "req-123")
-		_ = c.String(http.StatusOK, "%s", txt)
+		_ = c.JSON(http.StatusOK, map[string]string{"result": txt})
 	})
 
 	app.GET("/fail", func(c *zentrox.Context) {
