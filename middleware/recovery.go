@@ -12,7 +12,7 @@ func Recovery() zentrox.Handler {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("panic: %v", r)
-				c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
+				_ = c.JSON(http.StatusInternalServerError, zentrox.HTTPError{
 					Code:    http.StatusInternalServerError,
 					Message: zentrox.MsgInternalServerError,
 				})

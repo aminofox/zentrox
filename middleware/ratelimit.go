@@ -32,7 +32,7 @@ func DefaultRateLimit() RateLimitConfig {
 			return c.RealIP()
 		},
 		OnLimit: func(c *zentrox.Context) {
-			c.JSON(http.StatusTooManyRequests, map[string]any{
+			_ = c.JSON(http.StatusTooManyRequests, map[string]any{
 				"code":    http.StatusTooManyRequests,
 				"message": zentrox.MsgTooManyRequests,
 			})
@@ -54,7 +54,7 @@ func RateLimit(cfg RateLimitConfig) zentrox.Handler {
 	}
 	if cfg.OnLimit == nil {
 		cfg.OnLimit = func(c *zentrox.Context) {
-			c.JSON(http.StatusTooManyRequests, map[string]any{"code": 429, "message": zentrox.MsgTooManyRequests})
+			_ = c.JSON(http.StatusTooManyRequests, map[string]any{"code": 429, "message": zentrox.MsgTooManyRequests})
 		}
 	}
 	if cfg.StaleAfter <= 0 {

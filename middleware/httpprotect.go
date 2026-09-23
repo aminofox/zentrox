@@ -28,10 +28,10 @@ func DefaultHTTPProtection() HTTPProtectionConfig {
 		},
 		MaxURLLength: 2048,
 		OnMethodNotAllowed: func(c *zentrox.Context) {
-			c.Fail(http.StatusMethodNotAllowed, zentrox.MsgMethodNotAllowed)
+			_ = c.Fail(http.StatusMethodNotAllowed, zentrox.MsgMethodNotAllowed)
 		},
 		OnURITooLong: func(c *zentrox.Context) {
-			c.Fail(http.StatusRequestURITooLong, zentrox.MsgURITooLong)
+			_ = c.Fail(http.StatusRequestURITooLong, zentrox.MsgURITooLong)
 		},
 	}
 }
@@ -39,12 +39,12 @@ func DefaultHTTPProtection() HTTPProtectionConfig {
 func HTTPProtection(cfg HTTPProtectionConfig) zentrox.Handler {
 	if cfg.OnMethodNotAllowed == nil {
 		cfg.OnMethodNotAllowed = func(c *zentrox.Context) {
-			c.Fail(http.StatusMethodNotAllowed, zentrox.MsgMethodNotAllowed)
+			_ = c.Fail(http.StatusMethodNotAllowed, zentrox.MsgMethodNotAllowed)
 		}
 	}
 	if cfg.OnURITooLong == nil {
 		cfg.OnURITooLong = func(c *zentrox.Context) {
-			c.Fail(http.StatusRequestURITooLong, zentrox.MsgURITooLong)
+			_ = c.Fail(http.StatusRequestURITooLong, zentrox.MsgURITooLong)
 		}
 	}
 	if cfg.MaxURLLength < 0 {

@@ -24,7 +24,7 @@ func TimeoutWithConfig(cfg TimeoutConfig) zentrox.Handler {
 	}
 	if cfg.OnTimeout == nil {
 		cfg.OnTimeout = func(c *zentrox.Context) {
-			c.Fail(http.StatusGatewayTimeout, zentrox.MsgRequestTimeout)
+			_ = c.Fail(http.StatusGatewayTimeout, zentrox.MsgRequestTimeout)
 		}
 	}
 
