@@ -1,6 +1,7 @@
 package main
 
 import (
+	"html"
 	"log"
 	"os"
 	"time"
@@ -17,7 +18,7 @@ func main() {
 	}
 
 	// Swap LoggerWithFunc with your own logger (zap, logrus, etc.)
-	app.Plug(
+	app.Use(
 		middleware.LoggerWithFunc(func(method, path string, status int, duration time.Duration, err error) {
 			if err != nil {
 				log.Printf("[%s] %s %d (%s) err=%v", method, path, status, duration, err)
@@ -30,11 +31,12 @@ func main() {
 	)
 
 	app.GET("/", func(c *zentrox.Context) {
-		c.JSON(200, map[string]string{"status": "ok"})
+		_ = c.JSON(200, map[string]string{"status": "ok"})
 	})
 
 	app.GET("/hello/:name", func(c *zentrox.Context) {
-		c.JSON(200, map[string]string{"message": "Hello, " + c.Param("name") + "!"})
+		name := html.EscapeString(c.Param("name"))
+		_ = c.JSON(200, map[string]string{"message": "Hello, " + name + "!"})
 	})
 
 	// Issue a signed JWT — use the token in: Authorization: Bearer <token>
@@ -46,20 +48,20 @@ func main() {
 			},
 		}
 		token, _ := middleware.SignHS256(claims, secret)
-		c.JSON(200, map[string]string{"token": token})
+		_ = c.JSON(200, map[string]string{"token": token})
 	})
 
-	// Protected scope: validates the token signature and registered time claims.
-	api := app.Scope("/api", middleware.JWT(middleware.JWTConfig{
+	// Protected group: validates the token signature and registered time claims.
+	api := app.Group("/api", middleware.JWT(middleware.JWTConfig{
 		Secret:     secret,
 		ContextKey: "user",
 	}))
 
 	api.GET("/me", func(c *zentrox.Context) {
 		user, _ := c.Get("user")
-		c.JSON(200, user)
+		_ = c.JSON(200, user)
 	})
 
 	log.Println("listening on :8000")
-	app.Run(":8000")
+	_ = app.Run(":8000")
 }

@@ -20,7 +20,7 @@ func (d discardRW) Write(p []byte) (int, error) { return len(p), nil }
 func newAppCommon() *zentrox.App {
 	app := zentrox.NewApp()
 	// ErrorHandler is a common, lightweight chain; avoid AccessLog as writing IO will dirty the benchmark
-	app.Plug(
+	app.Use(
 		middleware.ErrorHandler(middleware.DefaultErrorHandler()),
 	)
 	return app
@@ -28,7 +28,7 @@ func newAppCommon() *zentrox.App {
 
 func newAppHardened() *zentrox.App {
 	app := newAppCommon()
-	app.Plug(
+	app.Use(
 		middleware.SecurityHeaders(middleware.DefaultSecurityHeaders()),
 		middleware.HTTPProtection(middleware.DefaultHTTPProtection()),
 		middleware.BodyLimit(middleware.DefaultBodyLimit()),
@@ -147,7 +147,7 @@ func BenchmarkRPS_HardenedStatic_Parallel(b *testing.B) {
 
 func BenchmarkRPS_DefaultAPIHardening_Static(b *testing.B) {
 	app := newAppCommon()
-	app.Plug(middleware.DefaultAPIHardening()...)
+	app.Use(middleware.DefaultAPIHardening()...)
 	app.GET("/hi", func(c *zentrox.Context) {
 		c.SendStatus(http.StatusNoContent)
 	})
@@ -158,7 +158,7 @@ func BenchmarkRPS_DefaultAPIHardening_Static(b *testing.B) {
 
 func BenchmarkRPS_DefaultAPIHardening_Static_Parallel(b *testing.B) {
 	app := newAppCommon()
-	app.Plug(middleware.DefaultAPIHardening()...)
+	app.Use(middleware.DefaultAPIHardening()...)
 	app.GET("/hi", func(c *zentrox.Context) {
 		c.SendStatus(http.StatusNoContent)
 	})
@@ -169,7 +169,7 @@ func BenchmarkRPS_DefaultAPIHardening_Static_Parallel(b *testing.B) {
 
 func BenchmarkRPS_DefaultAPIHardeningFast_Static(b *testing.B) {
 	app := newAppCommon()
-	app.Plug(middleware.DefaultAPIHardeningFast()...)
+	app.Use(middleware.DefaultAPIHardeningFast()...)
 	app.GET("/hi", func(c *zentrox.Context) {
 		c.SendStatus(http.StatusNoContent)
 	})
@@ -180,7 +180,7 @@ func BenchmarkRPS_DefaultAPIHardeningFast_Static(b *testing.B) {
 
 func BenchmarkRPS_DefaultAPIHardeningFast_Static_Parallel(b *testing.B) {
 	app := newAppCommon()
-	app.Plug(middleware.DefaultAPIHardeningFast()...)
+	app.Use(middleware.DefaultAPIHardeningFast()...)
 	app.GET("/hi", func(c *zentrox.Context) {
 		c.SendStatus(http.StatusNoContent)
 	})

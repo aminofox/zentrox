@@ -15,7 +15,7 @@ import (
 
 func TestGzip_CompressesBigResponse(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.Gzip())
+	app.Use(middleware.Gzip())
 
 	big := strings.Repeat("abcdef0123456789", 1024) // 16KB
 	app.GET("/big", func(c *zentrox.Context) {
@@ -49,7 +49,7 @@ func TestGzip_CompressesBigResponse(t *testing.T) {
 
 func TestGzip_SkipSmallAndSkipTypes(t *testing.T) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.Gzip())
+	app.Use(middleware.Gzip())
 
 	// Small body (<MinSize default 512) should not be compressed
 	app.GET("/small", func(c *zentrox.Context) {

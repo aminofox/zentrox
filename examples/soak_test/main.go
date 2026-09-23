@@ -14,7 +14,7 @@ func main() {
 	app := zentrox.NewApp()
 
 	// Full production middleware stack
-	app.Plug(
+	app.Use(
 		middleware.Recovery(),
 		middleware.RequestID(middleware.RequestIDConfig{}),
 		middleware.Logger(),

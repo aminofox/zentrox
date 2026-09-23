@@ -66,7 +66,7 @@ func (w *headWriter) ReadFrom(r io.Reader) (n int64, err error) {
 }
 
 // respRecorder captures status code and bytes without changing behavior.
-// It is used to feed onResponse hook with final status/latency.
+// It is used to feed onResponse hook with final status/latency and enforces baseline security headers.
 type respRecorder struct {
 	http.ResponseWriter
 	status int
@@ -90,12 +90,15 @@ func (w *respRecorder) WriteHeader(code int) {
 		return
 	}
 	w.status = code
+	if h := w.ResponseWriter.Header(); h.Get(HeaderXContentTypeOptions) == "" {
+		h.Set(HeaderXContentTypeOptions, "nosniff")
+	}
 	w.ResponseWriter.WriteHeader(code)
 }
 
 func (w *respRecorder) Write(b []byte) (int, error) {
 	if w.status == 0 {
-		w.status = http.StatusOK
+		w.WriteHeader(http.StatusOK)
 	}
 	n, err := w.ResponseWriter.Write(b)
 	w.bytes += n
@@ -126,7 +129,7 @@ func (w *respRecorder) Push(target string, opts *http.PushOptions) error {
 
 func (w *respRecorder) ReadFrom(r io.Reader) (n int64, err error) {
 	if w.status == 0 {
-		w.status = http.StatusOK
+		w.WriteHeader(http.StatusOK)
 	}
 	rf, ok := w.ResponseWriter.(io.ReaderFrom)
 	if ok {

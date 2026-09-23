@@ -11,10 +11,10 @@ import (
 	"github.com/aminofox/zentrox/v2/middleware"
 )
 
-func benchMiddlewareCostGet(b *testing.B, plugs ...zentrox.Handler) {
+func benchMiddlewareCostGet(b *testing.B, mws ...zentrox.Handler) {
 	app := zentrox.NewApp()
-	if len(plugs) > 0 {
-		app.Plug(plugs...)
+	if len(mws) > 0 {
+		app.Use(mws...)
 	}
 	app.GET("/cost", func(c *zentrox.Context) { c.SendStatus(http.StatusNoContent) })
 
@@ -73,7 +73,7 @@ func BenchmarkMiddlewareCost_DefaultAPIHardeningFast(b *testing.B) {
 
 func BenchmarkMiddlewareCost_BodyLimit_ReadSmallJSON(b *testing.B) {
 	app := zentrox.NewApp()
-	app.Plug(middleware.BodyLimit(middleware.DefaultBodyLimit()))
+	app.Use(middleware.BodyLimit(middleware.DefaultBodyLimit()))
 	app.POST("/cost", func(c *zentrox.Context) {
 		var payload map[string]any
 		_ = c.BindJSONInto(&payload)

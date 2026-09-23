@@ -106,6 +106,10 @@ func resolveStaticTarget(root, rel string, opt *StaticOptions, allow map[string]
 		}
 	}
 
+	if strings.Contains(rel, "\x00") || strings.Contains(rel, "\\") {
+		return "", nil, http.StatusForbidden, MsgForbidden
+	}
+
 	clean := filepath.Clean(rel)
 	if strings.HasPrefix(clean, "..") {
 		return "", nil, http.StatusForbidden, MsgForbidden

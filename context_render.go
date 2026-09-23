@@ -28,6 +28,7 @@ func (c *Context) JSON(code int, v any) error {
 		return err
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeJSONUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	_, err = c.Writer.Write(b)
@@ -40,6 +41,7 @@ func (c *Context) String(code int, format string, values ...any) error {
 		return ErrResponseCommitted
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	if len(values) > 0 {
@@ -56,6 +58,7 @@ func (c *Context) HTML(code int, html string) error {
 		return ErrResponseCommitted
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeHTMLUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	_, err := c.Writer.Write([]byte(html))
@@ -68,6 +71,7 @@ func (c *Context) XML(code int, v any) error {
 		return ErrResponseCommitted
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeXMLUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	b, err := xml.Marshal(v)
@@ -87,6 +91,7 @@ func (c *Context) Data(code int, contentType string, b []byte) error {
 	if contentType != "" {
 		c.Writer.Header().Set(HeaderContentType, contentType)
 	}
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	_, err := c.Writer.Write(b)
@@ -145,6 +150,7 @@ func (c *Context) SendBytes(code int, b []byte) error {
 		return ErrResponseCommitted
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	_, err := c.Writer.Write(b)
@@ -157,6 +163,7 @@ func (c *Context) SendStatus(code int) error {
 		return ErrResponseCommitted
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeTextUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(code)
 	return nil
@@ -172,6 +179,7 @@ func (c *Context) PushStream(fn func(w io.Writer, flush func())) error {
 		return http.ErrNotSupported
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeOctetStream)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(http.StatusOK)
 	flush := func() {
@@ -192,6 +200,7 @@ func (c *Context) PushSSE(fn func(event func(name, data string))) error {
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeEventStream)
 	c.Writer.Header().Set(HeaderCacheControl, CacheControlNoCache)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(http.StatusOK)
 
@@ -393,6 +402,7 @@ func (c *Context) Problem(status int, typeURI, title, detail, instance string, e
 		Ext:      ext,
 	}
 	c.Writer.Header().Set(HeaderContentType, ContentTypeProblemJSONUTF8)
+	c.Writer.Header().Set(HeaderXContentTypeOptions, "nosniff")
 	c.markResponseCommitted()
 	c.Writer.WriteHeader(status)
 	enc := json.NewEncoder(c.Writer)

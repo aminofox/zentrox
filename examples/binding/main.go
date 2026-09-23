@@ -22,7 +22,7 @@ type SearchDTO struct {
 
 func main() {
 	app := zentrox.NewApp()
-	app.Plug(
+	app.Use(
 		middleware.CORS(middleware.CORSConfig{
 			AllowOrigins:     []string{"http://localhost:5173", "*"},
 			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
